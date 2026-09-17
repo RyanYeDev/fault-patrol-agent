@@ -1,0 +1,44 @@
+server:
+  port: 8091
+
+# 线程池配置
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 50
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+# 测试环境：禁用数据库自动配置（不依赖 MySQL / pgvector 时使用）
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
+  ai:
+    openai:
+      base-url: ${LLM_BASE_URL:https://your-llm-api.example.com}
+      api-key: ${LLM_API_KEY:sk-your-llm-api-key}
+    agent:
+      auto-config:
+        enabled: false
+
+# 定时巡检任务配置
+faultpatrol:
+  alert:
+    default-agent-id: 10001
+  task:
+    job:
+      enabled: false
+
+# 日志
+logging:
+  level:
+    root: info
+    cn.faultpatrol: debug
+  config: classpath:logback-spring.xml

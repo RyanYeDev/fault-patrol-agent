@@ -1,0 +1,5 @@
+spring:
+  config:
+    name: fault-patrol-agent-app
+  profiles:
+    active: dev

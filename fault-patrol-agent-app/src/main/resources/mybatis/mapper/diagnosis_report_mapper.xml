@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.faultpatrol.infrastructure.dao.IDiagnosisReportDao">
+
+    <resultMap id="DiagnosisReportMap" type="cn.faultpatrol.infrastructure.dao.po.DiagnosisReport">
+        <id column="id" property="id"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="agent_id" property="agentId"/>
+        <result column="alert_content" property="alertContent"/>
+        <result column="root_cause" property="rootCause"/>
+        <result column="remediation" property="remediation"/>
+        <result column="evidence" property="evidence"/>
+        <result column="summary" property="summary"/>
+        <result column="status" property="status"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.faultpatrol.infrastructure.dao.po.DiagnosisReport" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO diagnosis_report (
+            session_id, agent_id, alert_content, root_cause, remediation,
+            evidence, summary, status, create_time, update_time
+        ) VALUES (
+            #{sessionId}, #{agentId}, #{alertContent}, #{rootCause}, #{remediation},
+            #{evidence}, #{summary}, #{status}, now(), now()
+        )
+    </insert>
+
+    <select id="queryById" parameterType="java.lang.Long" resultMap="DiagnosisReportMap">
+        SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
+               evidence, summary, status, create_time, update_time
+        FROM diagnosis_report
+        WHERE id = #{id}
+    </select>
+
+    <select id="queryBySessionId" parameterType="java.lang.String" resultMap="DiagnosisReportMap">
+        SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
+               evidence, summary, status, create_time, update_time
+        FROM diagnosis_report
+        WHERE session_id = #{sessionId}
+        ORDER BY create_time DESC
+    </select>
+
+    <select id="queryRecentReports" resultMap="DiagnosisReportMap">
+        SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
+               evidence, summary, status, create_time, update_time
+        FROM diagnosis_report
+        ORDER BY create_time DESC
+        LIMIT 50
+    </select>
+
+</mapper>

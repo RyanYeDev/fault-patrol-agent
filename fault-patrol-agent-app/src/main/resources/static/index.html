@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fault Patrol Agent - 业务系统智能故障巡检 Agent</title>
+<style>
+:root {
+  --bg: #0f172a; --panel: #1e293b; --border: #334155; --text: #e2e8f0;
+  --muted: #94a3b8; --accent: #38bdf8; --ok: #34d399; --warn: #fbbf24; --err: #f87171;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  padding: 24px; max-width: 1080px; margin: 0 auto; line-height: 1.6;
+}
+h1 { font-size: 22px; margin-bottom: 4px; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+.status-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+.chip {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.input-area {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; margin-bottom: 20px;
+}
+textarea {
+  width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 70px;
+}
+.controls { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+button {
+  background: var(--accent); color: #0f172a; border: none; border-radius: 8px;
+  padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+.stages { display: flex; flex-direction: column; gap: 14px; }
+.stage {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.stage-head {
+  padding: 10px 16px; font-size: 14px; font-weight: 700; display: flex; justify-content: space-between;
+  border-bottom: 1px solid var(--border); align-items: center;
+}
+.stage-head .tag { font-size: 12px; color: var(--muted); font-weight: 400; }
+.stage-body { padding: 12px 16px; font-size: 13px; white-space: pre-wrap; word-break: break-all; max-height: 420px; overflow-y: auto; }
+.stage.plan .stage-head { color: #7dd3fc; }
+.stage.evidence .stage-head { color: #a5b4fc; }
+.stage.supervision .stage-head { color: #fcd34d; }
+.stage.report .stage-head { color: #6ee7b7; }
+.stage.error .stage-head { color: var(--err); }
+.sub-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+.sub-item:last-child { border-bottom: none; margin-bottom: 0; }
+.sub-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
+.report-md { font-size: 13.5px; }
+.report-md h1, .report-md h2, .report-md h3 { margin: 12px 0 6px; font-size: 15px; color: #6ee7b7; }
+.report-md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+.report-md td, .report-md th { border: 1px solid var(--border); padding: 5px 8px; }
+.report-md code { background: #0b1220; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.report-md pre { background: #0b1220; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+.links { margin-top: 20px; font-size: 13px; color: var(--muted); }
+.links a { color: var(--accent); text-decoration: none; margin-right: 14px; }
+</style>
+</head>
+<body>
+<h1>🔍 Fault Patrol Agent</h1>
+<div class="sub">业务系统智能故障巡检 Agent · Plan-and-Execute 四阶段诊断 · MCP 巡检工具 · RAG 故障手册</div>
+
+<div class="status-row" id="statusRow"></div>
+
+<div class="input-area">
+  <textarea id="alertInput">订单服务下单接口错误率突增，用户反馈下单超时，疑似缓存与数据库不一致，请定位根因并给出处置建议</textarea>
+  <div class="controls">
+    <button id="btnStart" onclick="startDiagnose()">开始诊断</button>
+    <button class="secondary" id="btnStop" onclick="stopDiagnose()" disabled>终止</button>
+    <span id="statusText" style="font-size:13px;color:var(--muted)">会话ID：<span id="sessionIdText">-</span></span>
+  </div>
+</div>
+
+<div class="stages" id="stages">
+  <div class="empty" id="emptyHint">点击「开始诊断」，四阶段诊断过程将实时展示在这里</div>
+</div>
+
+<div class="links">
+  快速入口：
+  <a href="/api/v1/inspect/available_agents" target="_blank">智能体列表</a>
+  <a href="http://localhost:8092/health" target="_blank">MCP 工具健康</a>
+  <a href="http://localhost:15672" target="_blank">RabbitMQ 控制台</a>
+  <a href="http://localhost:9090" target="_blank">Prometheus</a>
+  <a href="http://localhost:16686" target="_blank">Jaeger UI</a>
+</div>
+
+<script>
+const STAGES = [
+  { key: 'plan',        title: '阶段一 · 故障分析规划' },
+  { key: 'evidence',    title: '阶段二 · 多工具取证执行' },
+  { key: 'supervision', title: '阶段三 · 证据质量监督' },
+  { key: 'report',      title: '阶段四 · 诊断报告' },
+];
+const subLabels = {
+  plan_status: '故障分析', plan_history: '执行历史评估', plan_strategy: '取证策略',
+  plan_progress: '完成度评估', plan_task_status: '任务状态',
+  evidence_target: '取证目标', evidence_process: '取证过程', evidence_result: '取证结果', evidence_quality: '证据检查',
+  assessment: '质量评估', issues: '问题识别', suggestions: '改进建议', score: '质量评分', pass: '检查结果',
+};
+let controller = null;
+let sessionId = 'session_' + Date.now();
+
+function buildStages() {
+  const wrap = document.getElementById('stages');
+  document.getElementById('emptyHint').remove();
+  for (const s of STAGES) {
+    const div = document.createElement('div');
+    div.className = 'stage ' + s.key;
+    div.id = 'stage-' + s.key;
+    div.innerHTML = '<div class="stage-head"><span>' + s.title + '</span><span class="tag">等待中</span></div><div class="stage-body"></div>';
+    wrap.appendChild(div);
+  }
+  document.getElementById('sessionIdText').textContent = sessionId;
+}
+
+function setStageState(key, tag) {
+  const el = document.getElementById('stage-' + key);
+  if (el) el.querySelector('.stage-head .tag').textContent = tag;
+}
+
+function appendSub(key, subType, content) {
+  const body = document.querySelector('#stage-' + key + ' .stage-body');
+  if (!body) return;
+  const item = document.createElement('div');
+  item.className = 'sub-item';
+  item.innerHTML = '<div class="sub-label">' + (subLabels[subType] || subType || '') + '</div><div>' + escapeHtml(content) + '</div>';
+  body.appendChild(item);
+  body.scrollTop = body.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function minimalMd(s) {
+  s = escapeHtml(s);
+  s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return s;
+}
+
+async function startDiagnose() {
+  sessionId = 'session_' + Date.now();
+  document.getElementById('sessionIdText').textContent = sessionId;
+  document.getElementById('stages').innerHTML = '<div class="empty" id="emptyHint"></div>';
+  buildStages();
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+  document.getElementById('statusText').textContent = '诊断中...';
+
+  controller = new AbortController();
+  const message = document.getElementById('alertInput').value.trim() || '执行一次系统巡检';
+  try {
+    const resp = await fetch('/api/v1/inspect/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify({ aiAgentId: '10001', message: message, sessionId: sessionId, maxStep: 3 }),
+      signal: controller.signal,
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let reportStarted = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.split('\n').find(l => l.startsWith('data: '));
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        handleEvent(ev);
+        if (ev.type === 'report' && !ev.delta && !reportStarted) { reportStarted = true; }
+      }
+    }
+    setStageState('report', '完成');
+    document.getElementById('statusText').textContent = '诊断完成，报告已落库（会话 ' + sessionId + '）';
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      document.getElementById('statusText').textContent = '已终止';
+    } else {
+      document.getElementById('statusText').textContent = '请求失败：' + e.message;
+      const err = document.createElement('div');
+      err.className = 'stage error';
+      err.innerHTML = '<div class="stage-head">错误</div><div class="stage-body">' + escapeHtml(e.message) + '</div>';
+      document.getElementById('stages').appendChild(err);
+    }
+  } finally {
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+  }
+}
+
+function handleEvent(ev) {
+  if (ev.type === 'plan' || ev.type === 'evidence' || ev.type === 'supervision') {
+    const key = ev.type;
+    setStageState(key, '执行中');
+    if (ev.subType) appendSub(key, ev.subType, ev.content);
+    return;
+  }
+  if (ev.type === 'report') {
+    setStageState('report', '流式输出中');
+    const body = document.querySelector('#stage-report .stage-body');
+    if (ev.delta) {
+      if (!body.dataset.md) {
+        body.innerHTML = '<div class="report-md" id="reportMd"></div>';
+        body.dataset.md = '1';
+      }
+      const md = document.getElementById('reportMd');
+      md.innerHTML += ev.content;
+      body.scrollTop = body.scrollHeight;
+    } else {
+      body.innerHTML = '<div class="report-md">' + minimalMd(ev.content) + '</div>';
+    }
+    return;
+  }
+  if (ev.type === 'complete') {
+    setStageState('report', '完成');
+    return;
+  }
+  if (ev.type === 'error') {
+    setStageState('report', '出错');
+    const err = document.createElement('div');
+    err.className = 'stage error';
+    err.innerHTML = '<div class="stage-head">错误</div><div class="stage-body">' + escapeHtml(ev.content) + '</div>';
+    document.getElementById('stages').appendChild(err);
+  }
+}
+
+function stopDiagnose() {
+  if (controller) controller.abort();
+}
+
+async function loadStatus() {
+  try {
+    const resp = await fetch('/api/v1/inspect/available_agents');
+    const json = await resp.json();
+    const row = document.getElementById('statusRow');
+    row.innerHTML = '<div class="chip"><span class="dot"></span>主应用 8091 · 在线</div>';
+    if (json && json.data) {
+      for (const a of json.data) {
+        row.innerHTML += '<div class="chip"><span class="dot"></span>' + escapeHtml(a.agentName) + '</div>';
+      }
+    }
+    try {
+      const h = await fetch('http://localhost:8092/health');
+      if (h.ok) row.innerHTML += '<div class="chip"><span class="dot"></span>MCP 巡检工具 8092 · 在线</div>';
+    } catch (e) { /* MCP 不可达时忽略 */ }
+  } catch (e) {
+    document.getElementById('statusRow').innerHTML = '<div class="chip"><span class="dot" style="background:var(--err)"></span>主应用未连接</div>';
+  }
+}
+
+loadStatus();
+</script>
+</body>
+</html>

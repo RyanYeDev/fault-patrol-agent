@@ -1,0 +1,78 @@
+server:
+  port: 8091
+
+# 线程池配置
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 100
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+# 生产环境数据库配置：通过环境变量注入，避免明文落盘
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
+  datasource:
+    mysql:
+      username: ${MYSQL_USERNAME:root}
+      password: ${MYSQL_PASSWORD:}
+      url: ${MYSQL_URL:jdbc:mysql://localhost:3306/fault_patrol_agent?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      type: com.zaxxer.hikari.HikariDataSource
+      hikari:
+        pool-name: FaultPatrol_HikariCP
+        minimum-idle: 10
+        idle-timeout: 180000
+        maximum-pool-size: 30
+        auto-commit: true
+        max-lifetime: 1800000
+        connection-timeout: 30000
+        connection-test-query: SELECT 1
+    pgvector:
+      driver-class-name: org.postgresql.Driver
+      username: ${PGVECTOR_USERNAME:postgres}
+      password: ${PGVECTOR_PASSWORD:}
+      url: ${PGVECTOR_URL:jdbc:postgresql://localhost:5432/fault_patrol_rag}
+      type: com.zaxxer.hikari.HikariDataSource
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 2
+        idle-timeout: 30000
+        connection-timeout: 30000
+  ai:
+    openai:
+      base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+      api-key: ${LLM_API_KEY:}
+      embedding:
+        base-url: ${EMBEDDING_BASE_URL:https://api.siliconflow.cn}
+        api-key: ${EMBEDDING_API_KEY:}
+        options:
+          model: BAAI/bge-m3
+    agent:
+      auto-config:
+        enabled: true
+
+# 定时巡检任务配置
+faultpatrol:
+  alert:
+    default-agent-id: 10001
+  task:
+    job:
+      enabled: true
+      pool-size: 5
+      thread-name-prefix: "fault-patrol-task-scheduler-"
+      wait-for-tasks-to-complete-on-shutdown: true
+      await-termination-seconds: 30
+      refresh-interval: 60000
+      clean-invalid-tasks-cron: "0 0/10 * * * ?"
+
+# 日志
+logging:
+  level:
+    root: info
+  config: classpath:logback-spring.xml

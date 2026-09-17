@@ -1,0 +1,59 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: fault-patrol-agent-mcp-server
+  ai:
+    mcp:
+      server:
+        name: fault-patrol-inspect-tools
+        version: 1.0.0
+        enabled: true
+        type: SYNC
+        instructions: 故障巡检只读工具集：业务数据、Redis、MQ、容器、Prometheus、Jaeger。所有工具均为只读操作。
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+
+# 巡检工具配置：按需启用，未启用或不可达时工具返回明确错误信息
+faultpatrol:
+  tools:
+    redis:
+      enabled: false
+      host: localhost
+      port: 6379
+      password: ""
+      database: 0
+      timeout-ms: 3000
+    rabbitmq:
+      enabled: false
+      management-url: http://localhost:15672
+      username: guest
+      password: guest
+      timeout: 5s
+    prometheus:
+      enabled: false
+      base-url: http://localhost:9090
+      timeout: 10s
+    jaeger:
+      enabled: false
+      base-url: http://localhost:16686
+      timeout: 10s
+    container:
+      enabled: false
+      docker-cli: docker
+      timeout-seconds: 30
+    business-data:
+      enabled: false
+      jdbc-url: jdbc:mysql://localhost:3306/fault_patrol_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      username: root
+      password: ""
+      allowed-tables: [ ]
+      max-rows: 200
+      query-timeout-seconds: 10
+
+logging:
+  level:
+    root: info

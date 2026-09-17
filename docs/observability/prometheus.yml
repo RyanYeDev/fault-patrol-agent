@@ -1,0 +1,28 @@
+# Prometheus 巡检数据源配置
+# 默认仅采集 Prometheus 自身指标；接入业务系统时补充 job 与 exporter 地址
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 业务系统接入示例：
+  # - job_name: "business-app"
+  #   metrics_path: "/actuator/prometheus"
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8080"]
+  #
+  # node_exporter 示例：
+  # - job_name: "node"
+  #   static_configs:
+  #     - targets: ["host.docker.internal:9100"]

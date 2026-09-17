@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>cn.faultpatrol</groupId>
+    <artifactId>fault-patrol-agent</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>fault-patrol-agent</name>
+    <description>业务系统智能故障巡检 Agent 平台：Plan-and-Execute 四阶段诊断、MCP 巡检工具、RAG 故障手册与可观测链路整合</description>
+    <url>https://github.com/fault-patrol/fault-patrol-agent</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+
+    <modules>
+        <module>fault-patrol-agent-api</module>
+        <module>fault-patrol-agent-app</module>
+        <module>fault-patrol-agent-domain</module>
+        <module>fault-patrol-agent-trigger</module>
+        <module>fault-patrol-agent-infrastructure</module>
+        <module>fault-patrol-agent-types</module>
+        <module>fault-patrol-agent-mcp-server</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.3</version>
+    </parent>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.mybatis.spring.boot</groupId>
+                <artifactId>mybatis-spring-boot-starter</artifactId>
+                <version>3.0.4</version>
+            </dependency>
+            <dependency>
+                <groupId>mysql</groupId>
+                <artifactId>mysql-connector-java</artifactId>
+                <version>8.0.28</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>fastjson</artifactId>
+                <version>2.0.28</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.9</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>32.1.3-jre</version>
+            </dependency>
+
+            <!-- spring ai -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>1.0.9</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- 工程模块 -->
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-api</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-domain</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-infrastructure</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-types</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-trigger</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.faultpatrol</groupId>
+                <artifactId>fault-patrol-agent-mcp-server</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

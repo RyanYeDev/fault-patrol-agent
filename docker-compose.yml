@@ -1,0 +1,176 @@
+# 故障巡检 Agent 平台 - 一键启动环境
+# 用法：docker compose up -d
+# 访问：主应用 http://localhost:8091，巡检工具 MCP http://localhost:8092/sse
+services:
+
+  # MySQL：平台配置库（agent/模型/MCP/advisor 装配配置 + 诊断报告）
+  mysql:
+    image: mysql:8.0.32
+    container_name: fault-patrol-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 12345678
+      TZ: Asia/Shanghai
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./docs/sql/fault-patrol-agent.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # 数据目录绑定到宿主机 ext4 路径（Windows/WSL 的 9p 挂载不兼容 MySQL 权限语义）
+      - /opt/faultpatrol/mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p12345678"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # PostgreSQL + pgvector：故障手册向量知识库
+  # 使用自建镜像（postgres:16 + pgvector 扩展），规避官方镜像网络不可用问题
+  pgvector:
+    build:
+      context: .
+      dockerfile: docker/pgvector.Dockerfile
+    image: fault-patrol-pgvector:16
+    container_name: fault-patrol-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fault_patrol_rag
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docs/sql/fault-patrol-agent-pgvector.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # 数据目录绑定到宿主机 ext4 路径（同上，PostgreSQL 同样受 9p 权限语义影响）
+      - /opt/faultpatrol/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Redis：巡检对象 + 平台缓存
+  redis:
+    image: redis:7-alpine
+    container_name: fault-patrol-redis
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+
+  # RabbitMQ：巡检对象（管理控制台 http://localhost:15672 admin/admin123）
+  # 注：guest 账号默认仅限 localhost 访问，容器网络需使用自定义账号
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: fault-patrol-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      # 数据目录绑定到宿主机 ext4（erlang.cookie 权限检查不兼容 9p 文件系统）
+      - /opt/faultpatrol/rabbitmq:/var/lib/rabbitmq
+
+  # Prometheus：指标巡检数据源
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: fault-patrol-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docs/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/faultpatrol/prometheus:/prometheus
+
+  # Jaeger：链路巡检数据源（查询界面 http://localhost:16686）
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: fault-patrol-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+  # 巡检工具 MCP 服务器（Redis/MQ/Prometheus/Jaeger/容器/业务数据只读工具）
+  mcp-server:
+    build:
+      context: .
+      dockerfile: fault-patrol-agent-mcp-server/Dockerfile
+    container_name: fault-patrol-mcp-server
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      FAULTPATROL_TOOLS_REDIS_ENABLED: "true"
+      FAULTPATROL_TOOLS_REDIS_HOST: redis
+      FAULTPATROL_TOOLS_RABBITMQ_ENABLED: "true"
+      FAULTPATROL_TOOLS_RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+      FAULTPATROL_TOOLS_RABBITMQ_USERNAME: admin
+      FAULTPATROL_TOOLS_RABBITMQ_PASSWORD: admin123
+      FAULTPATROL_TOOLS_PROMETHEUS_ENABLED: "true"
+      FAULTPATROL_TOOLS_PROMETHEUS_BASE_URL: http://prometheus:9090
+      FAULTPATROL_TOOLS_JAEGER_ENABLED: "true"
+      FAULTPATROL_TOOLS_JAEGER_BASE_URL: http://jaeger:16686
+      # 容器/业务数据工具始终注册：不可用时返回优雅错误，
+      # 避免模型幻觉调用不存在的工具导致诊断链异常
+      FAULTPATROL_TOOLS_CONTAINER_ENABLED: "true"
+      FAULTPATROL_TOOLS_BUSINESS_DATA_ENABLED: "true"
+      FAULTPATROL_TOOLS_BUSINESS_DATA_JDBC_URL: jdbc:mysql://mysql:3306/fault_patrol_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      FAULTPATROL_TOOLS_BUSINESS_DATA_USERNAME: root
+      FAULTPATROL_TOOLS_BUSINESS_DATA_PASSWORD: "12345678"
+      # 业务表白名单按需配置（如接入真实业务库）：逗号分隔，未配置时仅允许 SHOW/DESCRIBE 元信息查询
+      FAULTPATROL_TOOLS_BUSINESS_DATA_ALLOWED_TABLES: ""
+    ports:
+      - "8092:8092"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8092 && printf 'GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # 主应用：巡检诊断 Agent 平台
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fault-patrol-agent-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_URL: jdbc:mysql://mysql:3306/fault_patrol_agent?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: 12345678
+      PGVECTOR_URL: jdbc:postgresql://pgvector:5432/fault_patrol_rag
+      PGVECTOR_USERNAME: postgres
+      PGVECTOR_PASSWORD: postgres
+      # LLM / Embedding 密钥：在 .env 中配置（.env 已 gitignore，不会提交）
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY:-sk-your-llm-api-key}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-sk-your-embedding-api-key}
+      SPRING_PROFILES_ACTIVE: prod
+    ports:
+      - "8091:8091"
