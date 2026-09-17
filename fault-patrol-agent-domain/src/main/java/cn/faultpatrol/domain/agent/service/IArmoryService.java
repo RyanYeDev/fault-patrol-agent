@@ -56,4 +56,11 @@ public interface IArmoryService {
      */
     DiagnosisReportVO queryDiagnosisReportById(Long id);
 
+    /**
+     * 查询最近的诊断报告列表
+     *
+     * @return 诊断报告列表（最多 50 条）
+     */
+    List<DiagnosisReportVO> queryRecentDiagnosisReports();
+
 }

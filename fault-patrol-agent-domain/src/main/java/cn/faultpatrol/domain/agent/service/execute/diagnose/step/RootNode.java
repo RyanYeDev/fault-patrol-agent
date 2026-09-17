@@ -31,6 +31,12 @@ public class RootNode extends AbstractExecuteSupport {
 
         // 客户端对话组
         dynamicContext.setAiAgentClientFlowConfigVOMap(aiAgentClientFlowConfigVOMap);
+
+        // 业务域知识标签（Agent 级，诊断时按标签召回对应故障手册）
+        cn.faultpatrol.domain.agent.model.valobj.AiAgentVO agentVO = repository.queryAiAgentByAgentId(requestParameter.getAiAgentId());
+        if (agentVO != null) {
+            dynamicContext.setValue("agentKnowledgeTag", agentVO.getKnowledgeTag());
+        }
         // 上下文信息
         dynamicContext.setExecutionHistory(new StringBuilder());
         // 当前任务信息

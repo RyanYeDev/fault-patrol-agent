@@ -5,8 +5,12 @@ import cn.faultpatrol.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.faultpatrol.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiClientTypeEnumVO;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.step.support.SectionParser;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +26,7 @@ public class Step1PlanningNode extends AbstractExecuteSupport {
 
     @Override
     protected String doApply(ExecuteCommandEntity requestParameter, DefaultDiagnoseAgentExecuteStrategyFactory.DynamicContext dynamicContext) throws Exception {
+        ensureNotCancelled(requestParameter.getSessionId());
         log.info("=== 执行第 {} 步 ===", dynamicContext.getStep());
 
         // 获取配置信息
@@ -78,51 +83,23 @@ public class Step1PlanningNode extends AbstractExecuteSupport {
         int step = dynamicContext.getStep();
         log.info("=== 第 {} 步规划结果 ===", step);
 
-        String[] lines = planResult.split("\n");
-        String currentSection = "";
-        StringBuilder sectionContent = new StringBuilder();
-
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-
-            if (line.contains("故障分析:")) {
-                sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "plan_status";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("执行历史评估:")) {
-                sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "plan_history";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("取证策略:")) {
-                sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "plan_strategy";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("完成度评估:")) {
-                sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "plan_progress";
-                sectionContent = new StringBuilder();
-                sectionContent.append(line).append("\n");
-                continue;
-            } else if (line.contains("任务状态:")) {
-                sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "plan_task_status";
-                sectionContent = new StringBuilder();
-                sectionContent.append(line).append("\n");
-                continue;
-            }
-
-            // 收集当前section的内容
-            if (!currentSection.isEmpty()) {
-                sectionContent.append(line).append("\n");
-            }
+        Map<String, String> sections = SectionParser.parse(planResult, List.of("故障分析", "执行历史评估", "取证策略", "完成度评估", "任务状态"));
+        if (sections.isEmpty()) {
+            // 降级：模型未按模板输出时，整段内容作为故障分析事件发送，保证阶段内容不丢失
+            log.warn("规划输出未匹配到分节模板，整段降级发送");
+            sendPlanSubResult(dynamicContext, "plan_status", planResult, sessionId);
+            return;
         }
 
-        // 发送最后一个section的内容
-        sendPlanSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
+        Map<String, String> subTypeMap = Map.of(
+                "故障分析", "plan_status",
+                "执行历史评估", "plan_history",
+                "取证策略", "plan_strategy",
+                "完成度评估", "plan_progress",
+                "任务状态", "plan_task_status");
+
+        sections.forEach((section, content) ->
+                sendPlanSubResult(dynamicContext, subTypeMap.getOrDefault(section, section), content, sessionId));
     }
 
     /**

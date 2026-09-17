@@ -238,6 +238,36 @@ curl "http://localhost:8091/api/v1/inspect/report/1"
 
 ## 配置说明
 
+### 平台配置（application.yml / 环境变量）
+
+```yaml
+faultpatrol:
+  security:
+    enabled: true                 # 接口鉴权开关
+    inspect-api-key: ""           # 巡检接口（/api/v1/inspect/**）API Key，请求头 X-Api-Key；为空不鉴权
+    admin-api-key: ""             # 管理接口（/api/v1/admin/**）API Key；为空不鉴权
+  llm:
+    connect-timeout-ms: 30000     # LLM/Embedding 连接超时
+    read-timeout-ms: 120000       # 读取超时
+  alert:
+    default-agent-id: 10001       # 告警默认巡检智能体
+    webhook-secret: ""            # 告警签名密钥（HMAC-SHA256，X-Webhook-Signature）；为空不校验
+    dedup-window-minutes: 30      # 告警指纹去重窗口（分钟）
+spring:
+  ai:
+    retry:
+      max-attempts: 2             # LLM 调用重试次数收敛
+      backoff:
+        initial-interval: 1000ms
+        multiplier: 2
+        max-interval: 5000ms
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus   # /actuator/prometheus 平台自观测指标
+```
+
 ### Agent 装配配置（MySQL）
 
 四阶段 Agent 的能力完全由 `ai_agent` / `ai_agent_flow_config` / `ai_client*` 系列表驱动：
@@ -315,6 +345,20 @@ fault-patrol-agent
 - **新增巡检工具**：在 `fault-patrol-agent-mcp-server` 增加 `@Tool` 方法并注册进 `InspectToolsConfig`，随后在 `ai_client_tool_mcp` 增加配置即可被 Agent 调用
 - **新增诊断场景 Agent**：复制 `ai_agent_flow_config` 四阶段配置，替换 `step_prompt` 与知识标签，即可定制不同业务域的巡检 Agent
 - **新增知识库**：编写故障手册后调用 RAG 上传接口，`knowledge` 标签与 Advisor `filterExpression` 对应即可按域召回
+- **多业务域隔离**：`ai_agent.knowledge_tag` 配置业务域知识标签，诊断时 Agent 只召回该标签下的故障手册
+- **本地模型**：`ai_client_model.model_type=ollama` 时走 Ollama 本地模型（`ai_client_api.base_url` 填 Ollama 地址，无需 apiKey），适合离线环境
+
+## 进阶能力
+
+| 能力 | 说明 |
+|------|------|
+| 诊断取消 | `POST /api/v1/inspect/cancel?sessionId=xxx`；前端断开 SSE 时自动联动取消，各阶段节点在每轮开始前检查取消标记 |
+| 告警去重 | 告警指纹（SHA-256）+ 去重窗口，重复告警返回合并通知不再重复诊断（`alert_dedup` 表） |
+| 工具调用轨迹 | 每次取证的工具名/入参/结果/耗时结构化记录，落库 `diagnosis_report.tool_trace` |
+| 知识库管理 | `DELETE /api/v1/admin/ai-client-rag-order/file/delete?tag=&fileName=` 按标签/文件删除向量与台账 |
+| 历史报告 | `GET /api/v1/inspect/reports/recent` 最近 50 条报告；首页「历史诊断报告」面板可视化查看 |
+| 自观测 | `/actuator/health`、`/actuator/prometheus`（faultpatrol.diagnosis.duration / count / active 指标） |
+| 单元测试 | `mvn test`：32 个单元测试（责任链/分节解析/报告提取/签名指纹/SQL 守卫/鉴权过滤器）；DAO/策略集成测试标记 @Ignore 需真实环境手动运行 |
 
 ## 开源协议
 

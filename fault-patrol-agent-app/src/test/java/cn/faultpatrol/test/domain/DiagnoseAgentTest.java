@@ -9,6 +9,7 @@ import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.ai.chat.client.ChatClient;
@@ -24,6 +25,7 @@ import java.util.Arrays;
 @Slf4j
 @RunWith(SpringRunner.class)
 @SpringBootTest
+@Ignore("集成测试：需要数据库与 LLM 环境，手动运行")
 public class DiagnoseAgentTest {
 
     @Resource

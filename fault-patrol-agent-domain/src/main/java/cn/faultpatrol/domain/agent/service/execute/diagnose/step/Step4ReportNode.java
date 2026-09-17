@@ -6,6 +6,7 @@ import cn.faultpatrol.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import cn.faultpatrol.domain.agent.model.valobj.DiagnosisReportVO;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiClientTypeEnumVO;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.step.support.ReportSectionExtractor;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 阶段四：诊断报告节点
@@ -29,6 +32,7 @@ public class Step4ReportNode extends AbstractExecuteSupport {
 
     @Override
     protected String doApply(ExecuteCommandEntity requestParameter, DefaultDiagnoseAgentExecuteStrategyFactory.DynamicContext dynamicContext) throws Exception {
+        ensureNotCancelled(requestParameter.getSessionId());
         log.info("=== 执行第 {} 步 ===", dynamicContext.getStep());
 
         // 第四阶段：诊断报告
@@ -124,6 +128,17 @@ public class Step4ReportNode extends AbstractExecuteSupport {
 
             StringBuilder history = dynamicContext.getExecutionHistory();
 
+            // 结构化工具调用轨迹（跨轮次累计）
+            String toolTraceJson = "[]";
+            List<Map<String, Object>> accumulatedTrace = dynamicContext.getValue("toolTraceAcc");
+            if (accumulatedTrace != null && !accumulatedTrace.isEmpty()) {
+                try {
+                    toolTraceJson = com.alibaba.fastjson.JSON.toJSONString(accumulatedTrace);
+                } catch (Exception e) {
+                    log.warn("工具调用轨迹序列化失败：{}", e.getMessage());
+                }
+            }
+
             DiagnosisReportVO reportVO = DiagnosisReportVO.builder()
                     .sessionId(requestParameter.getSessionId())
                     .agentId(requestParameter.getAiAgentId())
@@ -131,6 +146,7 @@ public class Step4ReportNode extends AbstractExecuteSupport {
                     .rootCause(extractSection(summary, "根因分析"))
                     .remediation(extractSection(summary, "处置建议"))
                     .evidence(history == null ? "" : history.toString())
+                    .toolTrace(toolTraceJson)
                     .summary(truncate(summary, 20000))
                     .status(dynamicContext.isCompleted() ? "COMPLETED" : "STEP_LIMIT")
                     .createTime(new Date())
@@ -148,30 +164,7 @@ public class Step4ReportNode extends AbstractExecuteSupport {
      * 从报告文本中提取指定小节内容（报告模板：## 根因分析 / ## 处置建议）
      */
     private String extractSection(String report, String sectionName) {
-        if (report == null || report.isBlank()) {
-            return "";
-        }
-        String[] lines = report.split("\n");
-        StringBuilder content = new StringBuilder();
-        boolean inSection = false;
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.matches("^#{1,4}\\s*.*" + sectionName + ".*$")) {
-                inSection = true;
-                continue;
-            }
-            if (inSection) {
-                // 遇到同级或更高级标题（# 或 ##）结束本小节；### 及以下视为内容
-                if (trimmed.matches("^#{1,2}\\s+.*")) {
-                    break;
-                }
-                if (trimmed.isBlank()) {
-                    continue;
-                }
-                content.append(trimmed).append("\n");
-            }
-        }
-        return content.toString().trim();
+        return ReportSectionExtractor.extractSection(report, sectionName);
     }
 
     private String truncate(String content, int maxLength) {

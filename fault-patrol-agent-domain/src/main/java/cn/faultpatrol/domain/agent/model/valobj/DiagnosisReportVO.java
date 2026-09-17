@@ -53,6 +53,11 @@ public class DiagnosisReportVO {
     private String evidence;
 
     /**
+     * 工具调用轨迹（结构化 JSON：工具名/入参/结果/耗时/错误）
+     */
+    private String toolTrace;
+
+    /**
      * 完整诊断总结
      */
     private String summary;

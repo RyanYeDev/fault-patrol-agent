@@ -25,6 +25,9 @@ public class DiagnoseAgentExecuteStrategy implements IExecuteStrategy {
     @Resource
     private DefaultDiagnoseAgentExecuteStrategyFactory diagnoseAgentExecuteStrategyFactory;
 
+    @Resource
+    private DiagnoseTaskRegistry diagnoseTaskRegistry;
+
     @Override
     public void execute(ExecuteCommandEntity executeCommandEntity, ResponseBodyEmitter emitter) throws Exception {
         StrategyHandler<ExecuteCommandEntity, DefaultDiagnoseAgentExecuteStrategyFactory.DynamicContext, String> executeHandler
@@ -37,17 +40,32 @@ public class DiagnoseAgentExecuteStrategy implements IExecuteStrategy {
         dynamicContext.setCurrentTask(executeCommandEntity.getMessage());
         dynamicContext.setValue("emitter", emitter);
 
-        String apply = executeHandler.apply(executeCommandEntity, dynamicContext);
-        log.info("诊断执行链完成: {}", apply);
+        // 注册诊断任务，支持取消与断连联动
+        diagnoseTaskRegistry.register(executeCommandEntity.getSessionId());
 
-        // 发送完成标识
         try {
-            DiagnoseExecuteResultEntity completeResult = DiagnoseExecuteResultEntity.createCompleteResult(executeCommandEntity.getSessionId());
-            // 发送SSE格式的数据
-            String sseData = "data: " + JSON.toJSONString(completeResult) + "\n\n";
-            emitter.send(sseData);
-        } catch (Exception e) {
-            log.error("发送完成标识失败：{}", e.getMessage(), e);
+            String apply = executeHandler.apply(executeCommandEntity, dynamicContext);
+            log.info("诊断执行链完成: {}", apply);
+        } catch (DiagnoseCancelledException cancelled) {
+            // 诊断已取消：以取消消息收尾，不再生成报告
+            log.info("诊断任务已取消，会话ID：{}", executeCommandEntity.getSessionId());
+            try {
+                DiagnoseExecuteResultEntity cancelResult = DiagnoseExecuteResultEntity.createErrorResult(
+                        "诊断已取消", executeCommandEntity.getSessionId());
+                emitter.send("data: " + JSON.toJSONString(cancelResult) + "\n\n");
+            } catch (Exception ignored) {
+            }
+        } finally {
+            diagnoseTaskRegistry.unregister(executeCommandEntity.getSessionId());
+
+            // 发送完成标识
+            try {
+                DiagnoseExecuteResultEntity completeResult = DiagnoseExecuteResultEntity.createCompleteResult(executeCommandEntity.getSessionId());
+                String sseData = "data: " + JSON.toJSONString(completeResult) + "\n\n";
+                emitter.send(sseData);
+            } catch (Exception e) {
+                log.error("发送完成标识失败：{}", e.getMessage(), e);
+            }
         }
     }
 

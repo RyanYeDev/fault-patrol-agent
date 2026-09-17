@@ -41,6 +41,7 @@ CREATE TABLE `ai_agent` (
   `description` varchar(255) DEFAULT NULL COMMENT '描述',
   `channel` varchar(32) DEFAULT NULL COMMENT '渠道类型(agent，chat_stream)',
   `strategy` varchar(64) DEFAULT NULL COMMENT '执行策略Bean名(diagnoseAgentExecuteStrategy、flowAgentExecuteStrategy、fixedAgentExecuteStrategy)',
+  `knowledge_tag` varchar(64) DEFAULT NULL COMMENT '业务域知识标签（诊断时按标签召回对应故障手册，为空不注入）',
   `status` tinyint(1) DEFAULT '1' COMMENT '状态(0:禁用,1:启用)',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -48,10 +49,10 @@ CREATE TABLE `ai_agent` (
   UNIQUE KEY `uk_agent_id` (`agent_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI智能体配置表';
 
-INSERT INTO `ai_agent` (`id`, `agent_id`, `agent_name`, `description`, `channel`, `strategy`, `status`)
+INSERT INTO `ai_agent` (`id`, `agent_id`, `agent_name`, `description`, `channel`, `strategy`, `knowledge_tag`, `status`)
 VALUES
-  (1, '10001', '业务故障巡检诊断 Agent', 'Plan-and-Execute 四阶段故障诊断：故障分析规划 → 多工具取证 → 证据质量监督 → 诊断报告', 'chat_stream', 'diagnoseAgentExecuteStrategy', 1),
-  (2, '10002', '定时巡检 Agent（固定链）', '多客户端串联对话的轻量巡检模式，适合定时巡检任务', 'agent', 'fixedAgentExecuteStrategy', 1);
+  (1, '10001', '业务故障巡检诊断 Agent', 'Plan-and-Execute 四阶段故障诊断：故障分析规划 → 多工具取证 → 证据质量监督 → 诊断报告', 'chat_stream', 'diagnoseAgentExecuteStrategy', 'fault-handbook', 1),
+  (2, '10002', '定时巡检 Agent（固定链）', '多客户端串联对话的轻量巡检模式，适合定时巡检任务', 'agent', 'fixedAgentExecuteStrategy', NULL, 1);
 
 # ------------------------------------------------------------
 # 智能体-客户端流程配置表（四阶段）
@@ -307,6 +308,7 @@ CREATE TABLE `diagnosis_report` (
   `root_cause` longtext COMMENT '根因分析',
   `remediation` longtext COMMENT '处置建议',
   `evidence` longtext COMMENT '取证过程（证据链）',
+  `tool_trace` longtext COMMENT '工具调用轨迹（结构化JSON）',
   `summary` longtext COMMENT '完整诊断总结',
   `status` varchar(32) DEFAULT NULL COMMENT '诊断状态：COMPLETED/STEP_LIMIT',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -317,3 +319,21 @@ CREATE TABLE `diagnosis_report` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='诊断报告表';
 
 # ********************************************************************
+
+# ------------------------------------------------------------
+# 告警去重记录表
+# ------------------------------------------------------------
+DROP TABLE IF EXISTS `alert_dedup`;
+CREATE TABLE `alert_dedup` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `fingerprint` varchar(64) NOT NULL COMMENT '告警指纹（SHA-256）',
+  `alert_name` varchar(255) DEFAULT NULL COMMENT '告警名称',
+  `severity` varchar(32) DEFAULT NULL COMMENT '告警级别',
+  `source` varchar(64) DEFAULT NULL COMMENT '告警来源',
+  `first_seen` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '首次出现时间',
+  `last_seen` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近出现时间',
+  `hit_count` int NOT NULL DEFAULT '1' COMMENT '去重窗口内命中次数',
+  `last_session_id` varchar(128) DEFAULT NULL COMMENT '最近一次诊断会话ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_fingerprint` (`fingerprint`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='告警去重记录表';

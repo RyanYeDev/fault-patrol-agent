@@ -5,8 +5,12 @@ import cn.faultpatrol.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.faultpatrol.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiClientTypeEnumVO;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.step.support.SectionParser;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +27,7 @@ public class Step3SupervisionNode extends AbstractExecuteSupport {
     @Override
     protected String doApply(ExecuteCommandEntity requestParameter, DefaultDiagnoseAgentExecuteStrategyFactory.DynamicContext dynamicContext) throws Exception {
         // 第三阶段：质量监督
+        ensureNotCancelled(requestParameter.getSessionId());
         log.info("阶段3: 证据质量监督");
 
         // 从动态上下文中获取取证结果
@@ -102,54 +107,23 @@ public class Step3SupervisionNode extends AbstractExecuteSupport {
         int step = dynamicContext.getStep();
         log.info("=== 第 {} 步监督结果 ===", step);
 
-        String[] lines = supervisionResult.split("\n");
-        String currentSection = "";
-        StringBuilder sectionContent = new StringBuilder();
-
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-
-            if (line.contains("质量评估:")) {
-                sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "assessment";
-                sectionContent.setLength(0);
-                continue;
-            } else if (line.contains("问题识别:")) {
-                sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "issues";
-                sectionContent.setLength(0);
-                continue;
-            } else if (line.contains("改进建议:")) {
-                sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "suggestions";
-                sectionContent.setLength(0);
-                continue;
-            } else if (line.contains("质量评分:")) {
-                sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "score";
-                sectionContent.setLength(0);
-                sectionContent.append(line.substring(line.indexOf(":") + 1).trim());
-                continue;
-            } else if (line.contains("是否通过:")) {
-                sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "pass";
-                sectionContent.setLength(0);
-                sectionContent.append(line.substring(line.indexOf(":") + 1).trim());
-                continue;
-            }
-
-            // 收集当前部分的内容
-            if (!currentSection.isEmpty()) {
-                if (sectionContent.length() > 0) {
-                    sectionContent.append("\n");
-                }
-                sectionContent.append(line);
-            }
+        Map<String, String> sections = SectionParser.parse(supervisionResult, List.of("质量评估", "问题识别", "改进建议", "质量评分", "是否通过"));
+        if (sections.isEmpty()) {
+            // 降级：未匹配到分节模板时只发送完整监督结果
+            log.warn("监督输出未匹配到分节模板，仅发送完整结果");
+            sendSupervisionResult(dynamicContext, supervisionResult, sessionId);
+            return;
         }
 
-        // 发送最后一个部分的内容
-        sendSupervisionSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
+        Map<String, String> subTypeMap = Map.of(
+                "质量评估", "assessment",
+                "问题识别", "issues",
+                "改进建议", "suggestions",
+                "质量评分", "score",
+                "是否通过", "pass");
+
+        sections.forEach((section, content) ->
+                sendSupervisionSubResult(dynamicContext, subTypeMap.getOrDefault(section, section), content, sessionId));
 
         // 发送完整的监督结果
         sendSupervisionResult(dynamicContext, supervisionResult, sessionId);

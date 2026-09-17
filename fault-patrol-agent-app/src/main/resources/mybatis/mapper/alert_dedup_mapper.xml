@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.faultpatrol.infrastructure.dao.IAlertDedupDao">
+
+    <resultMap id="AlertDedupMap" type="cn.faultpatrol.infrastructure.dao.po.AlertDedup">
+        <id column="id" property="id"/>
+        <result column="fingerprint" property="fingerprint"/>
+        <result column="alert_name" property="alertName"/>
+        <result column="severity" property="severity"/>
+        <result column="source" property="source"/>
+        <result column="first_seen" property="firstSeen"/>
+        <result column="last_seen" property="lastSeen"/>
+        <result column="hit_count" property="hitCount"/>
+        <result column="last_session_id" property="lastSessionId"/>
+    </resultMap>
+
+    <insert id="upsert">
+        INSERT INTO alert_dedup (fingerprint, alert_name, severity, source, hit_count, last_session_id, first_seen, last_seen)
+        VALUES (#{alertDedup.fingerprint}, #{alertDedup.alertName}, #{alertDedup.severity},
+                #{alertDedup.source}, 1, #{alertDedup.lastSessionId}, now(), now())
+        ON DUPLICATE KEY UPDATE
+            hit_count = IF(TIMESTAMPDIFF(MINUTE, last_seen, NOW()) >= #{windowMinutes}, 1, hit_count + 1),
+            last_session_id = VALUES(last_session_id),
+            last_seen = now()
+    </insert>
+
+    <select id="queryHitCount" parameterType="java.lang.String" resultType="int">
+        SELECT hit_count
+        FROM alert_dedup
+        WHERE fingerprint = #{fingerprint}
+    </select>
+
+</mapper>

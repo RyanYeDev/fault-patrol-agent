@@ -4,6 +4,7 @@ import cn.faultpatrol.infrastructure.dao.IAiAgentDao;
 import cn.faultpatrol.infrastructure.dao.po.AiAgent;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +20,7 @@ import java.util.List;
 @Slf4j
 @RunWith(SpringRunner.class)
 @SpringBootTest
+@Ignore("集成测试：需要数据库与 LLM 环境，手动运行")
 public class AiAgentDaoTest {
 
     @Resource

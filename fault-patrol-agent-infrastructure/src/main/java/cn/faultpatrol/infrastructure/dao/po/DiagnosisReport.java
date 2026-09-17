@@ -54,6 +54,11 @@ public class DiagnosisReport {
     private String evidence;
 
     /**
+     * 工具调用轨迹（结构化 JSON）
+     */
+    private String toolTrace;
+
+    /**
      * 完整诊断总结
      */
     private String summary;

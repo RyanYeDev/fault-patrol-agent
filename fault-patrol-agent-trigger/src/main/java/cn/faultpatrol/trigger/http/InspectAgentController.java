@@ -13,13 +13,16 @@ import cn.faultpatrol.domain.agent.model.valobj.AiAgentVO;
 import cn.faultpatrol.domain.agent.model.valobj.DiagnosisReportVO;
 import cn.faultpatrol.domain.agent.service.IAgentDispatchService;
 import cn.faultpatrol.domain.agent.service.IArmoryService;
+import cn.faultpatrol.domain.agent.service.alert.IAlertDedupService;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.DiagnoseTaskRegistry;
+import cn.faultpatrol.trigger.config.AlertProperties;
+import cn.faultpatrol.types.util.SecurityUtil;
 import cn.faultpatrol.types.enums.ResponseCode;
 import com.alibaba.fastjson.JSON;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
@@ -43,11 +46,14 @@ public class InspectAgentController implements IInspectAgentService {
     @Resource
     private IArmoryService armoryService;
 
-    /**
-     * 告警接入默认巡检智能体ID
-     */
-    @Value("${faultpatrol.alert.default-agent-id:10001}")
-    private String defaultAgentId;
+    @Resource
+    private DiagnoseTaskRegistry diagnoseTaskRegistry;
+
+    @Resource
+    private AlertProperties alertProperties;
+
+    @Resource
+    private cn.faultpatrol.domain.agent.service.alert.IAlertDedupService alertDedupService;
 
     @RequestMapping(value = "diagnose", method = RequestMethod.POST)
     @Override
@@ -72,6 +78,10 @@ public class InspectAgentController implements IInspectAgentService {
                     .maxStep(request.getMaxStep())
                     .build();
 
+            // 前端断连时联动取消诊断任务，避免后台空跑
+            emitter.onCompletion(() -> diagnoseTaskRegistry.cancel(executeCommandEntity.getSessionId()));
+            emitter.onError(e -> diagnoseTaskRegistry.cancel(executeCommandEntity.getSessionId()));
+
             // 3. 调度处理
             agentDispatchService.dispatch(executeCommandEntity, emitter);
 
@@ -85,7 +95,23 @@ public class InspectAgentController implements IInspectAgentService {
 
     @RequestMapping(value = "alert", method = RequestMethod.POST)
     @Override
-    public ResponseBodyEmitter alert(@RequestBody AlertRequestDTO request, HttpServletResponse response) {
+    public ResponseBodyEmitter alert(@RequestBody String rawBody,
+                                     @RequestHeader(value = "X-Webhook-Signature", required = false) String signature,
+                                     HttpServletResponse response) {
+        // 签名校验（配置密钥后启用）
+        if (StringUtils.isNotBlank(alertProperties.getWebhookSecret())) {
+            if (!SecurityUtil.verifySignature(alertProperties.getWebhookSecret(), rawBody, signature)) {
+                log.warn("告警 webhook 签名校验失败，来源: {}", response.getHeader("X-Forwarded-For"));
+                return errorEmitter("告警签名校验失败，已拒绝");
+            }
+        }
+
+        AlertRequestDTO request;
+        try {
+            request = JSON.parseObject(rawBody, AlertRequestDTO.class);
+        } catch (Exception e) {
+            return errorEmitter("告警请求体解析失败：" + e.getMessage());
+        }
         log.info("告警接入请求开始，请求信息：{}", JSON.toJSONString(request));
 
         try {
@@ -99,18 +125,48 @@ public class InspectAgentController implements IInspectAgentService {
             ResponseBodyEmitter emitter = new ResponseBodyEmitter(Long.MAX_VALUE);
 
             // 2. 组装告警诊断指令
-            String aiAgentId = StringUtils.isBlank(request.getAiAgentId()) ? defaultAgentId : request.getAiAgentId();
+            String aiAgentId = StringUtils.isBlank(request.getAiAgentId())
+                    ? alertProperties.getDefaultAgentId() : request.getAiAgentId();
             String message = buildAlertMessage(request);
 
-            // 3. 构建执行命令实体
+            // 3. 告警指纹去重：窗口期内重复告警合并，跳过重复诊断
+            String sessionId = "alert_" + System.currentTimeMillis();
+            IAlertDedupService.AlertDedupResult dedupResult = alertDedupService.accept(
+                    request.getAlertName(), request.getSeverity(), request.getSource(),
+                    request.getAlertContent(), sessionId, alertProperties.getDedupWindowMinutes());
+
+            if (!dedupResult.isShouldDiagnose()) {
+                // 重复告警：返回合并通知，不重复诊断
+                String notice = String.format("重复告警已合并：该告警在去重窗口内已出现 %d 次（最近诊断会话由首次告警发起），跳过本次重复诊断",
+                        dedupResult.getHitCount());
+                log.info("告警指纹 {} 去重命中，跳过诊断", dedupResult.getFingerprint());
+                try {
+                    emitter.send("data: " + JSON.toJSONString(
+                            cn.faultpatrol.domain.agent.model.entity.DiagnoseExecuteResultEntity
+                                    .createNoticeResult(notice, sessionId)) + "\n\n");
+                    emitter.send("data: " + JSON.toJSONString(
+                            cn.faultpatrol.domain.agent.model.entity.DiagnoseExecuteResultEntity
+                                    .createCompleteResult(sessionId)) + "\n\n");
+                } catch (Exception e) {
+                    log.error("发送去重通知失败：{}", e.getMessage(), e);
+                }
+                emitter.complete();
+                return emitter;
+            }
+
+            // 4. 构建执行命令实体
             ExecuteCommandEntity executeCommandEntity = ExecuteCommandEntity.builder()
                     .aiAgentId(aiAgentId)
                     .message(message)
-                    .sessionId("alert_" + System.currentTimeMillis())
+                    .sessionId(sessionId)
                     .maxStep(5)
                     .build();
 
-            // 4. 调度处理
+            // 前端断连时联动取消诊断任务
+            emitter.onCompletion(() -> diagnoseTaskRegistry.cancel(sessionId));
+            emitter.onError(e -> diagnoseTaskRegistry.cancel(sessionId));
+
+            // 5. 调度处理
             agentDispatchService.dispatch(executeCommandEntity, emitter);
 
             return emitter;
@@ -119,6 +175,32 @@ public class InspectAgentController implements IInspectAgentService {
             log.error("告警接入请求处理异常：{}", e.getMessage(), e);
             return errorEmitter("请求处理异常：" + e.getMessage());
         }
+    }
+
+    /**
+     * 取消运行中的诊断任务
+     */
+    @RequestMapping(value = "cancel", method = RequestMethod.POST)
+    public Response<Boolean> cancel(@RequestParam String sessionId) {
+        boolean cancelled = diagnoseTaskRegistry.cancel(sessionId);
+        log.info("取消诊断任务请求，sessionId：{}，结果：{}", sessionId, cancelled);
+        return Response.<Boolean>builder()
+                .code(ResponseCode.SUCCESS.getCode())
+                .info(cancelled ? "已发送取消信号" : "会话不存在或已结束")
+                .data(cancelled)
+                .build();
+    }
+
+    /**
+     * 查询运行中的诊断任务数
+     */
+    @RequestMapping(value = "active-tasks", method = RequestMethod.GET)
+    public Response<Integer> activeTasks() {
+        return Response.<Integer>builder()
+                .code(ResponseCode.SUCCESS.getCode())
+                .info("查询成功")
+                .data(diagnoseTaskRegistry.activeTaskCount())
+                .build();
     }
 
     @RequestMapping(value = "armory_agent", method = RequestMethod.POST)
@@ -253,6 +335,32 @@ public class InspectAgentController implements IInspectAgentService {
                     .build();
         } catch (Exception e) {
             log.error("查询诊断报告失败：{}", e.getMessage(), e);
+            return Response.<List<DiagnosisReportResponseDTO>>builder()
+                    .code(ResponseCode.UN_ERROR.getCode())
+                    .info("查询失败：" + e.getMessage())
+                    .data(new ArrayList<>())
+                    .build();
+        }
+    }
+
+    @RequestMapping(value = "reports/recent", method = RequestMethod.GET)
+    @Override
+    public Response<List<DiagnosisReportResponseDTO>> queryRecentReports() {
+        try {
+            List<DiagnosisReportVO> reportVOS = armoryService.queryRecentDiagnosisReports();
+
+            List<DiagnosisReportResponseDTO> responseList = new ArrayList<>();
+            for (DiagnosisReportVO reportVO : reportVOS) {
+                responseList.add(convertReportVO(reportVO));
+            }
+
+            return Response.<List<DiagnosisReportResponseDTO>>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info("查询成功")
+                    .data(responseList)
+                    .build();
+        } catch (Exception e) {
+            log.error("查询最近诊断报告失败：{}", e.getMessage(), e);
             return Response.<List<DiagnosisReportResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info("查询失败：" + e.getMessage())

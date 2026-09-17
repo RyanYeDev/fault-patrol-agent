@@ -95,6 +95,15 @@ button.secondary { background: var(--panel); color: var(--text); border: 1px sol
   <a href="http://localhost:16686" target="_blank">Jaeger UI</a>
 </div>
 
+<div class="input-area" style="margin-top:20px">
+  <div class="stage-head" style="color:var(--accent);padding:0 0 10px 0;border:none">
+    <span>📜 历史诊断报告</span>
+    <button class="secondary" onclick="loadHistory()" style="padding:5px 14px;font-size:12px">刷新列表</button>
+  </div>
+  <div id="historyList" style="font-size:13px;color:var(--muted)">点击「刷新列表」加载最近的诊断报告</div>
+  <div id="historyDetail" style="display:none;margin-top:12px;background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;max-height:420px;overflow-y:auto"></div>
+</div>
+
 <script>
 const STAGES = [
   { key: 'plan',        title: '阶段一 · 故障分析规划' },
@@ -246,6 +255,42 @@ function handleEvent(ev) {
 
 function stopDiagnose() {
   if (controller) controller.abort();
+}
+
+async function loadHistory() {
+  const list = document.getElementById('historyList');
+  list.innerHTML = '加载中...';
+  try {
+    const resp = await fetch('/api/v1/inspect/reports/recent');
+    const json = await resp.json();
+    if (!json.data || json.data.length === 0) {
+      list.innerHTML = '暂无历史诊断报告';
+      return;
+    }
+    let html = '';
+    for (const r of json.data) {
+      const time = (r.createTime || '').replace('T', ' ').substring(0, 19);
+      const statusText = r.status === 'COMPLETED' ? '✅' : '⏱️';
+      html += '<div class="sub-item" style="cursor:pointer" onclick=\'showHistoryDetail(' + r.id + ')\'>'
+        + '<b>' + statusText + ' ' + escapeHtml(r.sessionId) + '</b>'
+        + ' <span class="sub-label">' + time + ' · ' + escapeHtml(r.status || '') + '</span><br>'
+        + escapeHtml((r.alertContent || '').substring(0, 80)) + '</div>';
+    }
+    list.innerHTML = html;
+    window._historyCache = json.data;
+  } catch (e) {
+    list.innerHTML = '加载失败：' + escapeHtml(e.message);
+  }
+}
+
+function showHistoryDetail(id) {
+  const report = (window._historyCache || []).find(r => r.id === id);
+  if (!report) return;
+  const detail = document.getElementById('historyDetail');
+  detail.style.display = 'block';
+  detail.textContent = '【告警】' + (report.alertContent || '') + '\n\n'
+    + '【根因分析】\n' + (report.rootCause || '（未收敛）') + '\n\n'
+    + '【处置建议】\n' + (report.remediation || '（无）');
 }
 
 async function loadStatus() {

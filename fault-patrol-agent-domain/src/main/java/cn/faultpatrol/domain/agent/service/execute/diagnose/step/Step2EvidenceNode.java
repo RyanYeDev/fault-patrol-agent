@@ -4,9 +4,15 @@ import cn.faultpatrol.domain.agent.model.entity.DiagnoseExecuteResultEntity;
 import cn.faultpatrol.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.faultpatrol.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiClientTypeEnumVO;
+import cn.faultpatrol.domain.agent.service.armory.node.support.ToolTraceSupport;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.step.support.SectionParser;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +29,7 @@ public class Step2EvidenceNode extends AbstractExecuteSupport {
 
     @Override
     protected String doApply(ExecuteCommandEntity requestParameter, DefaultDiagnoseAgentExecuteStrategyFactory.DynamicContext dynamicContext) throws Exception {
+        ensureNotCancelled(requestParameter.getSessionId());
         log.info("阶段2: 多工具取证执行");
 
         // 从动态上下文中获取规划结果
@@ -39,25 +46,56 @@ public class Step2EvidenceNode extends AbstractExecuteSupport {
         // 获取对话客户端（该客户端绑定了 MCP 巡检工具回调，模型可自主调用工具取证）
         ChatClient chatClient = getChatClientByClientId(aiAgentClientFlowConfigVO.getClientId());
 
+        // 清理上轮残留的工具轨迹
+        ToolTraceSupport.drain();
+
+        // Agent 级知识标签：按业务域召回对应故障手册（RagAnswerAdvisor 读取 qa_filter_expression）
+        String knowledgeTag = dynamicContext.getValue("agentKnowledgeTag");
+        final String knowledgeFilter = (knowledgeTag == null || knowledgeTag.isBlank())
+                ? null : "knowledge == '" + knowledgeTag + "'";
+
         String evidenceResult = chatClient
                 .prompt(evidencePrompt)
-                .advisors(a -> a
-                        .param(CHAT_MEMORY_CONVERSATION_ID_KEY, requestParameter.getSessionId())
-                        .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 1024))
+                .advisors(a -> {
+                    a.param(CHAT_MEMORY_CONVERSATION_ID_KEY, requestParameter.getSessionId())
+                            .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 1024);
+                    if (knowledgeFilter != null) {
+                        a.param("qa_filter_expression", knowledgeFilter);
+                    }
+                })
                 .call().content();
 
         assert evidenceResult != null;
+
+        // 取走本轮工具调用轨迹（结构化证据留痕，报告落库时持久化）
+        List<Map<String, Object>> toolTrace = ToolTraceSupport.drain();
+        if (!toolTrace.isEmpty()) {
+            log.info("本轮取证调用巡检工具 {} 次", toolTrace.size());
+        }
+        // 跨轮次累计全部工具调用轨迹
+        List<Map<String, Object>> accumulatedTrace = dynamicContext.getValue("toolTraceAcc");
+        if (accumulatedTrace == null) {
+            accumulatedTrace = new ArrayList<>();
+        }
+        accumulatedTrace.addAll(toolTrace);
+        dynamicContext.setValue("toolTraceAcc", accumulatedTrace);
+
         parseEvidenceResult(dynamicContext, evidenceResult, requestParameter.getSessionId());
 
         // 将取证结果保存到动态上下文中，供下一步使用
         dynamicContext.setValue("evidenceResult", evidenceResult);
 
-        // 更新执行历史
+        // 更新执行历史（附工具调用摘要，供监督节点与报告参考）
+        String toolSummary = toolTrace.stream()
+                .map(t -> t.get("tool") + "(" + t.get("costMs") + "ms" + (t.get("error") != null ? ",失败" : "") + ")")
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("无");
         String stepSummary = String.format("""
                 === 第 %d 步执行记录 ===
                 【规划阶段】%s
                 【取证阶段】%s
-                """, dynamicContext.getStep(), planResult, evidenceResult);
+                【工具调用】%s
+                """, dynamicContext.getStep(), planResult, evidenceResult, toolSummary);
 
         dynamicContext.getExecutionHistory().append(stepSummary);
 
@@ -76,44 +114,22 @@ public class Step2EvidenceNode extends AbstractExecuteSupport {
         int step = dynamicContext.getStep();
         log.info("=== 第 {} 步取证结果 ===", step);
 
-        String[] lines = evidenceResult.split("\n");
-        String currentSection = "";
-        StringBuilder sectionContent = new StringBuilder();
-
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-
-            if (line.contains("取证目标:")) {
-                sendEvidenceSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "evidence_target";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("取证过程:")) {
-                sendEvidenceSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "evidence_process";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("取证结果:")) {
-                sendEvidenceSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "evidence_result";
-                sectionContent = new StringBuilder();
-                continue;
-            } else if (line.contains("证据检查:")) {
-                sendEvidenceSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
-                currentSection = "evidence_quality";
-                sectionContent = new StringBuilder();
-                continue;
-            }
-
-            // 收集当前section的内容
-            if (!currentSection.isEmpty()) {
-                sectionContent.append(line).append("\n");
-            }
+        Map<String, String> sections = SectionParser.parse(evidenceResult, List.of("取证目标", "取证过程", "取证结果", "证据检查"));
+        if (sections.isEmpty()) {
+            // 降级：模型未按模板输出时，整段内容作为取证结果事件发送
+            log.warn("取证输出未匹配到分节模板，整段降级发送");
+            sendEvidenceSubResult(dynamicContext, "evidence_result", evidenceResult, sessionId);
+            return;
         }
 
-        // 发送最后一个section的内容
-        sendEvidenceSubResult(dynamicContext, currentSection, sectionContent.toString(), sessionId);
+        Map<String, String> subTypeMap = Map.of(
+                "取证目标", "evidence_target",
+                "取证过程", "evidence_process",
+                "取证结果", "evidence_result",
+                "证据检查", "evidence_quality");
+
+        sections.forEach((section, content) ->
+                sendEvidenceSubResult(dynamicContext, subTypeMap.getOrDefault(section, section), content, sessionId));
     }
 
     /**

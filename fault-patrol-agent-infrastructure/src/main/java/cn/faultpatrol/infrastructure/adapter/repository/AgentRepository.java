@@ -61,6 +61,9 @@ public class AgentRepository implements IAgentRepository {
     @Resource
     private IDiagnosisReportDao diagnosisReportDao;
 
+    @Resource
+    private IAlertDedupDao alertDedupDao;
+
     @Override
     public List<AiClientApiVO> queryAiClientApiVOListByClientIds(List<String> clientIdList) {
         if (clientIdList == null || clientIdList.isEmpty()) {
@@ -547,6 +550,7 @@ public class AgentRepository implements IAgentRepository {
                 .description(aiAgent.getDescription())
                 .channel(aiAgent.getChannel())
                 .strategy(aiAgent.getStrategy())
+                .knowledgeTag(aiAgent.getKnowledgeTag())
                 .status(aiAgent.getStatus())
                 .build();
     }
@@ -598,10 +602,16 @@ public class AgentRepository implements IAgentRepository {
     @Override
     public void createTagOrder(AiRagOrderVO aiRagOrderVO) {
         AiClientRagOrder aiRagOrder = new AiClientRagOrder();
+        aiRagOrder.setRagId(aiRagOrderVO.getRagId());
         aiRagOrder.setRagName(aiRagOrderVO.getRagName());
         aiRagOrder.setKnowledgeTag(aiRagOrderVO.getKnowledgeTag());
         aiRagOrder.setStatus(1);
         aiClientRagOrderDao.insert(aiRagOrder);
+    }
+
+    @Override
+    public void deleteRagOrder(String knowledgeTag, String ragName) {
+        aiClientRagOrderDao.deleteByKnowledgeTagAndName(knowledgeTag, ragName);
     }
 
     @Override
@@ -615,6 +625,7 @@ public class AgentRepository implements IAgentRepository {
                     .description(aiAgent.getDescription())
                     .channel(aiAgent.getChannel())
                     .strategy(aiAgent.getStrategy())
+                    .knowledgeTag(aiAgent.getKnowledgeTag())
                     .status(aiAgent.getStatus())
                     .build());
         }
@@ -646,6 +657,7 @@ public class AgentRepository implements IAgentRepository {
                 .rootCause(diagnosisReportVO.getRootCause())
                 .remediation(diagnosisReportVO.getRemediation())
                 .evidence(diagnosisReportVO.getEvidence())
+                .toolTrace(diagnosisReportVO.getToolTrace())
                 .summary(diagnosisReportVO.getSummary())
                 .status(diagnosisReportVO.getStatus())
                 .build();
@@ -667,6 +679,26 @@ public class AgentRepository implements IAgentRepository {
         return toReportVO(report);
     }
 
+    @Override
+    public List<DiagnosisReportVO> queryRecentDiagnosisReports() {
+        List<DiagnosisReport> reports = diagnosisReportDao.queryRecentReports();
+        return reports.stream().map(this::toReportVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public int recordAlert(String fingerprint, String alertName, String severity, String source,
+                           String sessionId, int windowMinutes) {
+        AlertDedup alertDedup = AlertDedup.builder()
+                .fingerprint(fingerprint)
+                .alertName(alertName)
+                .severity(severity)
+                .source(source)
+                .lastSessionId(sessionId)
+                .build();
+        alertDedupDao.upsert(alertDedup, windowMinutes);
+        return alertDedupDao.queryHitCount(fingerprint);
+    }
+
     private DiagnosisReportVO toReportVO(DiagnosisReport report) {
         return DiagnosisReportVO.builder()
                 .id(report.getId())
@@ -676,6 +708,7 @@ public class AgentRepository implements IAgentRepository {
                 .rootCause(report.getRootCause())
                 .remediation(report.getRemediation())
                 .evidence(report.getEvidence())
+                .toolTrace(report.getToolTrace())
                 .summary(report.getSummary())
                 .status(report.getStatus())
                 .createTime(report.getCreateTime() == null ? null : java.util.Date.from(report.getCreateTime().atZone(java.time.ZoneId.systemDefault()).toInstant()))

@@ -32,11 +32,12 @@ public interface IInspectAgentService {
     /**
      * 告警接入：告警 webhook 自动发起巡检诊断
      *
-     * @param request  告警请求
-     * @param response HTTP 响应
+     * @param rawBody   原始请求体（用于 HMAC 签名校验）
+     * @param signature 请求头 X-Webhook-Signature（可空）
+     * @param response  HTTP 响应
      * @return SSE 流式输出
      */
-    ResponseBodyEmitter alert(AlertRequestDTO request, HttpServletResponse response);
+    ResponseBodyEmitter alert(String rawBody, String signature, HttpServletResponse response);
 
     /**
      * 装配智能体
@@ -76,5 +77,12 @@ public interface IInspectAgentService {
      * @return 诊断报告
      */
     Response<DiagnosisReportResponseDTO> queryReportById(Long id);
+
+    /**
+     * 查询最近的诊断报告列表
+     *
+     * @return 诊断报告列表（最多 50 条）
+     */
+    Response<List<DiagnosisReportResponseDTO>> queryRecentReports();
 
 }

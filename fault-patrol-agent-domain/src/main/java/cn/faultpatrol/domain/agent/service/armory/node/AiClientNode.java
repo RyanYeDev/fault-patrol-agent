@@ -5,6 +5,7 @@ import cn.faultpatrol.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import cn.faultpatrol.domain.agent.model.valobj.AiClientSystemPromptVO;
 import cn.faultpatrol.domain.agent.model.valobj.AiClientVO;
 import cn.faultpatrol.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
+import cn.faultpatrol.domain.agent.service.armory.node.support.ToolTraceSupport;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import com.alibaba.fastjson.JSON;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -49,8 +50,8 @@ public class AiClientNode extends AbstractArmorySupport {
                 defaultSystem.append(aiClientSystemPromptVO.getPromptContent());
             }
 
-            // 2. 对话模型
-            OpenAiChatModel chatModel = getBean(aiClientVO.getModelBeanName());
+            // 2. 对话模型（OpenAI 兼容 / Ollama 本地模型统一走 ChatModel 接口）
+            org.springframework.ai.chat.model.ChatModel chatModel = getBean(aiClientVO.getModelBeanName());
 
             // 3. MCP 服务
             List<McpSyncClient> mcpSyncClients = new ArrayList<>();
@@ -68,10 +69,11 @@ public class AiClientNode extends AbstractArmorySupport {
 
             Advisor[] advisorArray = advisors.toArray(new Advisor[]{});
 
-            // 5. 构建对话客户端
+            // 5. 构建对话客户端（工具回调附带调用轨迹采集，用于结构化证据留痕）
             ChatClient chatClient = ChatClient.builder(chatModel)
                     .defaultSystem(defaultSystem.toString())
-                    .defaultToolCallbacks(new SyncMcpToolCallbackProvider(mcpSyncClients.toArray(new McpSyncClient[]{})))
+                    .defaultToolCallbacks(ToolTraceSupport.wrap(
+                            new SyncMcpToolCallbackProvider(mcpSyncClients.toArray(new McpSyncClient[]{}))))
                     .defaultAdvisors(advisorArray)
                     .build();
 

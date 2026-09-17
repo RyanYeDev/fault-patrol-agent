@@ -79,4 +79,12 @@
         ORDER BY create_time DESC
     </select>
 
+    <delete id="deleteByKnowledgeTagAndName">
+        DELETE FROM ai_client_rag_order
+        WHERE knowledge_tag = #{knowledgeTag}
+        <if test="ragName != null and ragName != ''">
+            AND rag_name = #{ragName}
+        </if>
+    </delete>
+
 </mapper>

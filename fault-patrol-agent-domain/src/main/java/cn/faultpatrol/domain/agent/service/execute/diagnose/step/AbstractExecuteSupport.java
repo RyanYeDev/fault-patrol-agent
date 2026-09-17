@@ -4,6 +4,8 @@ import cn.faultpatrol.domain.agent.adapter.repository.IAgentRepository;
 import cn.faultpatrol.domain.agent.model.entity.DiagnoseExecuteResultEntity;
 import cn.faultpatrol.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiAgentEnumVO;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.DiagnoseCancelledException;
+import cn.faultpatrol.domain.agent.service.execute.diagnose.DiagnoseTaskRegistry;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
 import cn.faultpatrol.types.design.framework.tree.AbstractStrategyRouter;
 import com.alibaba.fastjson.JSON;
@@ -29,8 +31,20 @@ public abstract class AbstractExecuteSupport extends AbstractStrategyRouter<Exec
     @Resource
     protected IAgentRepository repository;
 
+    @Resource
+    protected DiagnoseTaskRegistry diagnoseTaskRegistry;
+
     public static final String CHAT_MEMORY_CONVERSATION_ID_KEY = "chat_memory_conversation_id";
     public static final String CHAT_MEMORY_RETRIEVE_SIZE_KEY = "chat_memory_response_size";
+
+    /**
+     * 检查诊断任务是否已被取消（前端断连或主动取消），已取消则中断链路
+     */
+    protected void ensureNotCancelled(String sessionId) {
+        if (diagnoseTaskRegistry.isCancelled(sessionId)) {
+            throw new DiagnoseCancelledException();
+        }
+    }
 
     protected ChatClient getChatClientByClientId(String clientId) {
         return getBean(AiAgentEnumVO.AI_CLIENT.getBeanName(clientId));

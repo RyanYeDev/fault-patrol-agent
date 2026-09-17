@@ -56,7 +56,26 @@ public class AiClientModelNode extends AbstractArmorySupport {
                 mcpSyncClients.add(mcpSyncClient);
             }
 
-            // 实例化对话模型（如果有其他模型对接，可以使用 one-api 服务，转换为 openai 模型格式）
+            if ("ollama".equalsIgnoreCase(modelVO.getModelType())) {
+                // Ollama 本地模型：baseUrl 复用 API 配置（如 http://localhost:11434），无需 apiKey
+                String ollamaBaseUrl = findApiBaseUrl(dynamicContext, modelVO.getApiId());
+                org.springframework.ai.ollama.api.OllamaApi ollamaApi =
+                        org.springframework.ai.ollama.api.OllamaApi.builder()
+                                .baseUrl(ollamaBaseUrl == null ? "http://localhost:11434" : ollamaBaseUrl)
+                                .build();
+                org.springframework.ai.ollama.OllamaChatModel ollamaChatModel =
+                        org.springframework.ai.ollama.OllamaChatModel.builder()
+                                .ollamaApi(ollamaApi)
+                                .defaultOptions(org.springframework.ai.ollama.api.OllamaOptions.builder()
+                                        .model(modelVO.getModelName())
+                                        .build())
+                                .build();
+                registerBean(beanName(modelVO.getModelId()), org.springframework.ai.chat.model.ChatModel.class, ollamaChatModel);
+                log.info("注册 Ollama 本地模型：{} -> {}", modelVO.getModelId(), modelVO.getModelName());
+                continue;
+            }
+
+            // 实例化对话模型（OpenAI 兼容协议；其他兼容服务可通过 one-api 等网关统一为 openai 格式）
             OpenAiChatModel chatModel = OpenAiChatModel.builder()
                     .openAiApi(openAiApi)
                     .defaultOptions(
@@ -76,6 +95,22 @@ public class AiClientModelNode extends AbstractArmorySupport {
     @Override
     public StrategyHandler<ArmoryCommandEntity, DefaultArmoryStrategyFactory.DynamicContext, String> get(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
         return aiClientAdvisorNode;
+    }
+
+    /**
+     * 从装配上下文的 API 配置中查找指定 apiId 的 baseUrl
+     */
+    private String findApiBaseUrl(DefaultArmoryStrategyFactory.DynamicContext dynamicContext, String apiId) {
+        List<cn.faultpatrol.domain.agent.model.valobj.AiClientApiVO> apiList =
+                dynamicContext.getValue(AiAgentEnumVO.AI_CLIENT_API.getDataName());
+        if (apiList == null) {
+            return null;
+        }
+        return apiList.stream()
+                .filter(api -> apiId.equals(api.getApiId()))
+                .map(cn.faultpatrol.domain.agent.model.valobj.AiClientApiVO::getBaseUrl)
+                .findFirst()
+                .orElse(null);
     }
 
     @Override

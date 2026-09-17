@@ -16,6 +16,11 @@ import lombok.NoArgsConstructor;
 public class AiRagOrderVO {
 
     /**
+     * 知识库ID
+     */
+    private String ragId;
+
+    /**
      * 知识库名称
      */
     private String ragName;

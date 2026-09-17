@@ -56,4 +56,20 @@ public interface IAgentRepository {
 
     DiagnosisReportVO queryDiagnosisReportById(Long id);
 
+    List<DiagnosisReportVO> queryRecentDiagnosisReports();
+
+    /**
+     * 记录告警指纹并返回去重窗口内的命中次数（首次或超窗返回 1）
+     */
+    int recordAlert(String fingerprint, String alertName, String severity, String source,
+                    String sessionId, int windowMinutes);
+
+    /**
+     * 删除知识库台账记录
+     *
+     * @param knowledgeTag 知识标签
+     * @param ragName      知识库名称（为空时删除该标签下全部台账）
+     */
+    void deleteRagOrder(String knowledgeTag, String ragName);
+
 }

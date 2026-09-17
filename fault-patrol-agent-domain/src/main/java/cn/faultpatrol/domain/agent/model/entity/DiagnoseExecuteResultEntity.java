@@ -191,6 +191,20 @@ public class DiagnoseExecuteResultEntity {
     }
 
     /**
+     * 创建通知结果（去重合并等非诊断信息）
+     */
+    public static DiagnoseExecuteResultEntity createNoticeResult(String content, String sessionId) {
+        return DiagnoseExecuteResultEntity.builder()
+                .type("notice")
+                .step(null)
+                .content(content)
+                .completed(true)
+                .timestamp(System.currentTimeMillis())
+                .sessionId(sessionId)
+                .build();
+    }
+
+    /**
      * 创建报告阶段流式 token 增量结果
      */
     public static DiagnoseExecuteResultEntity createReportStreamResult(String content, String sessionId) {

@@ -16,8 +16,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 业务数据只读巡检工具
@@ -31,9 +29,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 public class BusinessDataInspectTool {
-
-    private static final Pattern TABLE_PATTERN = Pattern.compile(
-            "(?i)\\b(?:from|join|update|into|table)\\s+([`\"]?[a-zA-Z0-9_]+[`\"]?)");
 
     private final InspectToolsProperties properties;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,38 +52,20 @@ public class BusinessDataInspectTool {
         }
 
         // 1. 只读校验
-        String normalized = stripLeadingComments(sql).trim();
-        String upper = normalized.toUpperCase(java.util.Locale.ROOT);
-        boolean readOnly = upper.startsWith("SELECT") || upper.startsWith("SHOW")
-                || upper.startsWith("DESCRIBE") || upper.startsWith("DESC")
-                || upper.startsWith("EXPLAIN");
-        if (!readOnly) {
+        String normalized = BusinessSqlGuard.stripLeadingComments(sql).trim();
+        if (!BusinessSqlGuard.isReadOnlySql(normalized)) {
             return toJson(Map.of("error", "仅允许只读查询（SELECT/SHOW/DESCRIBE/EXPLAIN）"));
         }
 
         // 2. 表白名单校验
         List<String> allowedTables = properties.getBusinessData().getAllowedTables();
-        if (allowedTables != null && !allowedTables.isEmpty()) {
-            Matcher matcher = TABLE_PATTERN.matcher(normalized);
-            boolean allowed = false;
-            while (matcher.find()) {
-                String table = matcher.group(1).replaceAll("[`\"]", "");
-                if (allowedTables.contains(table.toLowerCase(java.util.Locale.ROOT))
-                        || allowedTables.contains(table)) {
-                    allowed = true;
-                    break;
-                }
-            }
-            if (!allowed) {
-                return toJson(Map.of("error", "SQL 涉及的表不在允许查询白名单内，白名单: " + allowedTables));
-            }
+        if (!BusinessSqlGuard.isTableAllowed(BusinessSqlGuard.extractTables(normalized), allowedTables)) {
+            return toJson(Map.of("error", "SQL 涉及的表不在允许查询白名单内，白名单: " + allowedTables));
         }
 
         // 3. 行数上限：无 LIMIT 时自动追加
         int maxRows = properties.getBusinessData().getMaxRows();
-        if (upper.startsWith("SELECT") && !upper.contains("LIMIT")) {
-            normalized = normalized.replaceAll(";\\s*$", "") + " LIMIT " + maxRows;
-        }
+        normalized = BusinessSqlGuard.appendLimit(normalized, maxRows);
 
         // 4. 执行查询
         try {
@@ -137,13 +114,6 @@ public class BusinessDataInspectTool {
             }
         }
         return jdbcTemplate;
-    }
-
-    /**
-     * 去除 SQL 前导注释
-     */
-    private String stripLeadingComments(String sql) {
-        return sql.replaceAll("(?s)^(\\s*(?:--[^\\n]*\\n|/\\*.*?\\*/\\s*))+", "");
     }
 
     private String truncate(String value, int maxLength) {

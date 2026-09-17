@@ -2,6 +2,7 @@ package cn.faultpatrol.infrastructure.dao;
 
 import cn.faultpatrol.infrastructure.dao.po.AiClientRagOrder;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -79,5 +80,14 @@ public interface IAiClientRagOrderDao {
      * @return 知识库配置列表
      */
     List<AiClientRagOrder> queryAll();
+
+    /**
+     * 按知识标签与名称删除知识库台账（名称为空时删除该标签下全部）
+     *
+     * @param knowledgeTag 知识标签
+     * @param ragName      知识库名称
+     * @return 影响行数
+     */
+    int deleteByKnowledgeTagAndName(@Param("knowledgeTag") String knowledgeTag, @Param("ragName") String ragName);
 
 }

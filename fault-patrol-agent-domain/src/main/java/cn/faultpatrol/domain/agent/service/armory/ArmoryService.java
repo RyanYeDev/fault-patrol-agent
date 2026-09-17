@@ -97,4 +97,9 @@ public class ArmoryService implements IArmoryService {
         return repository.queryDiagnosisReportById(id);
     }
 
+    @Override
+    public List<DiagnosisReportVO> queryRecentDiagnosisReports() {
+        return repository.queryRecentDiagnosisReports();
+    }
+
 }

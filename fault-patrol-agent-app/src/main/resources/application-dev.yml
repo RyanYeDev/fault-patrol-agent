@@ -17,6 +17,8 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
   datasource:
     mysql:
       username: root
@@ -53,15 +55,33 @@ spring:
         api-key: ${EMBEDDING_API_KEY:sk-your-embedding-api-key}
         options:
           model: BAAI/bge-m3
+    retry:
+      max-attempts: 2
+      backoff:
+        initial-interval: 1000ms
+        multiplier: 2
+        max-interval: 5000ms
     agent:
       auto-config:
         enabled: true
 
-# 定时巡检任务配置
+# 平台配置
 faultpatrol:
-  # 告警接入默认巡检智能体ID
+  # 接口安全配置（key 为空表示对应接口不鉴权，便于本地开发）
+  security:
+    enabled: true
+    inspect-api-key: ""
+    admin-api-key: ""
+  # LLM 调用超时（毫秒）
+  llm:
+    connect-timeout-ms: 30000
+    read-timeout-ms: 120000
+  # 告警接入配置
   alert:
     default-agent-id: 10001
+    # webhook 签名密钥（HMAC-SHA256），配置后强制校验 X-Webhook-Signature
+    webhook-secret: ""
+  # 定时巡检任务配置
   task:
     job:
       enabled: true
@@ -71,6 +91,13 @@ faultpatrol:
       await-termination-seconds: 30
       refresh-interval: 30000
       clean-invalid-tasks-cron: "0 0/5 * * * ?"
+
+# 平台自观测（/actuator/health /actuator/prometheus）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
 
 # 日志
 logging:

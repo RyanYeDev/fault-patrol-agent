@@ -10,6 +10,7 @@
         <result column="root_cause" property="rootCause"/>
         <result column="remediation" property="remediation"/>
         <result column="evidence" property="evidence"/>
+        <result column="tool_trace" property="toolTrace"/>
         <result column="summary" property="summary"/>
         <result column="status" property="status"/>
         <result column="create_time" property="createTime"/>
@@ -19,23 +20,23 @@
     <insert id="insert" parameterType="cn.faultpatrol.infrastructure.dao.po.DiagnosisReport" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO diagnosis_report (
             session_id, agent_id, alert_content, root_cause, remediation,
-            evidence, summary, status, create_time, update_time
+            evidence, tool_trace, summary, status, create_time, update_time
         ) VALUES (
             #{sessionId}, #{agentId}, #{alertContent}, #{rootCause}, #{remediation},
-            #{evidence}, #{summary}, #{status}, now(), now()
+            #{evidence}, #{toolTrace}, #{summary}, #{status}, now(), now()
         )
     </insert>
 
     <select id="queryById" parameterType="java.lang.Long" resultMap="DiagnosisReportMap">
         SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
-               evidence, summary, status, create_time, update_time
+               evidence, tool_trace, summary, status, create_time, update_time
         FROM diagnosis_report
         WHERE id = #{id}
     </select>
 
     <select id="queryBySessionId" parameterType="java.lang.String" resultMap="DiagnosisReportMap">
         SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
-               evidence, summary, status, create_time, update_time
+               evidence, tool_trace, summary, status, create_time, update_time
         FROM diagnosis_report
         WHERE session_id = #{sessionId}
         ORDER BY create_time DESC
@@ -43,7 +44,7 @@
 
     <select id="queryRecentReports" resultMap="DiagnosisReportMap">
         SELECT id, session_id, agent_id, alert_content, root_cause, remediation,
-               evidence, summary, status, create_time, update_time
+               evidence, tool_trace, summary, status, create_time, update_time
         FROM diagnosis_report
         ORDER BY create_time DESC
         LIMIT 50

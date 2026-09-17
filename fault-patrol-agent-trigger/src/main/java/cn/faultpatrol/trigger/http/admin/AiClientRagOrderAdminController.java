@@ -443,6 +443,30 @@ public class AiClientRagOrderAdminController implements IAiClientRagOrderAdminSe
     }
 
     /**
+     * 删除知识库文件：按知识标签 + 文件名删除向量数据与台账记录
+     */
+    @RequestMapping(value = "file/delete", method = RequestMethod.DELETE)
+    public Response<Boolean> deleteRagFile(@RequestParam("tag") String tag,
+                                           @RequestParam(value = "fileName", required = false) String fileName) {
+        try {
+            log.info("删除知识库文件，tag {}，fileName {}", tag, fileName);
+            ragService.deleteRagFile(tag, fileName);
+            return Response.<Boolean>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info("删除成功")
+                    .data(true)
+                    .build();
+        } catch (Exception e) {
+            log.error("删除知识库文件失败，tag {}，fileName {}：{}", tag, fileName, e.getMessage(), e);
+            return Response.<Boolean>builder()
+                    .code(ResponseCode.UN_ERROR.getCode())
+                    .info("删除失败：" + e.getMessage())
+                    .data(false)
+                    .build();
+        }
+    }
+
+    /**
      * PO转DTO
      */
     private AiClientRagOrderResponseDTO convertToAiClientRagOrderResponseDTO(AiClientRagOrder aiClientRagOrder) {
