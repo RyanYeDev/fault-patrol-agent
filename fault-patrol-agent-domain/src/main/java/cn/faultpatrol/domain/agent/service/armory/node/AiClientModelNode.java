@@ -4,6 +4,7 @@ import cn.faultpatrol.domain.agent.model.entity.ArmoryCommandEntity;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import cn.faultpatrol.domain.agent.model.valobj.AiClientModelVO;
 import cn.faultpatrol.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
+import cn.faultpatrol.domain.agent.service.armory.node.support.ToolTraceSupport;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import com.alibaba.fastjson.JSON;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -76,12 +77,14 @@ public class AiClientModelNode extends AbstractArmorySupport {
             }
 
             // 实例化对话模型（OpenAI 兼容协议；其他兼容服务可通过 one-api 等网关统一为 openai 格式）
+            // 工具回调在此包装调用轨迹采集：模型内部 ToolCallingManager 从模型选项解析回调
             OpenAiChatModel chatModel = OpenAiChatModel.builder()
                     .openAiApi(openAiApi)
                     .defaultOptions(
                             OpenAiChatOptions.builder()
                                     .model(modelVO.getModelName())
-                                    .toolCallbacks(new SyncMcpToolCallbackProvider(mcpSyncClients).getToolCallbacks())
+                                    .toolCallbacks(ToolTraceSupport.wrap(
+                                            new SyncMcpToolCallbackProvider(mcpSyncClients)).getToolCallbacks())
                                     .build())
                     .build();
 

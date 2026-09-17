@@ -5,7 +5,6 @@ import cn.faultpatrol.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import cn.faultpatrol.domain.agent.model.valobj.AiClientSystemPromptVO;
 import cn.faultpatrol.domain.agent.model.valobj.AiClientVO;
 import cn.faultpatrol.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.faultpatrol.domain.agent.service.armory.node.support.ToolTraceSupport;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
 import com.alibaba.fastjson.JSON;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -69,11 +68,10 @@ public class AiClientNode extends AbstractArmorySupport {
 
             Advisor[] advisorArray = advisors.toArray(new Advisor[]{});
 
-            // 5. 构建对话客户端（工具回调附带调用轨迹采集，用于结构化证据留痕）
+            // 5. 构建对话客户端（工具调用轨迹采集已在模型层包装，避免重复记录）
             ChatClient chatClient = ChatClient.builder(chatModel)
                     .defaultSystem(defaultSystem.toString())
-                    .defaultToolCallbacks(ToolTraceSupport.wrap(
-                            new SyncMcpToolCallbackProvider(mcpSyncClients.toArray(new McpSyncClient[]{}))))
+                    .defaultToolCallbacks(new SyncMcpToolCallbackProvider(mcpSyncClients.toArray(new McpSyncClient[]{})))
                     .defaultAdvisors(advisorArray)
                     .build();
 
