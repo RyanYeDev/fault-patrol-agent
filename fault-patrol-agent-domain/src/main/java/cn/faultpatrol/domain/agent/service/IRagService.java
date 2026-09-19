@@ -26,4 +26,14 @@ public interface IRagService {
      */
     void deleteRagFile(String tag, String fileName);
 
+    /**
+     * 纯文本内容入库（用于故障复盘 Postmortem 与自动生成的 Playbook 学习沉淀）
+     *
+     * @param name       知识库名称/标题
+     * @param tag        知识标签（如 fault-handbook）
+     * @param content    文本内容
+     * @param sourceName 来源标识
+     */
+    void storeTextContent(String name, String tag, String content, String sourceName);
+
 }

@@ -82,4 +82,23 @@ public class RagService implements IRagService {
         log.info("知识库删除完成：tag {}，fileName {}", tag, fileName);
     }
 
+    @Override
+    public void storeTextContent(String name, String tag, String content, String sourceName) {
+        if (!StringUtils.hasText(content)) return;
+        Document document = new Document(content);
+        List<Document> splitDocs = tokenTextSplitter.apply(List.of(document));
+        splitDocs.forEach(doc -> {
+            doc.getMetadata().put("knowledge", tag);
+            doc.getMetadata().put("source", StringUtils.hasText(sourceName) ? sourceName : name);
+        });
+        vectorStore.accept(splitDocs);
+
+        AiRagOrderVO aiRagOrderVO = new AiRagOrderVO();
+        aiRagOrderVO.setRagId(UUID.randomUUID().toString().replace("-", ""));
+        aiRagOrderVO.setRagName(name);
+        aiRagOrderVO.setKnowledgeTag(tag);
+        repository.createTagOrder(aiRagOrderVO);
+        log.info("知识库文本沉淀入库完成：title={}, tag={}, chunks={}", name, tag, splitDocs.size());
+    }
+
 }

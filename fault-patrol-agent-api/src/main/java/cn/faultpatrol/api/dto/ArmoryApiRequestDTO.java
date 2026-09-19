@@ -11,7 +11,6 @@ import java.io.Serializable;
 /**
  * ArmoryApi 装配请求 DTO
  *
- * 2025/1/15 10:00
  */
 @Data
 @Builder

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.faultpatrol.infrastructure.dao.IPatrolTargetDao">
+
+    <resultMap id="PatrolTargetMap" type="cn.faultpatrol.infrastructure.dao.po.PatrolTarget">
+        <id column="id" property="id"/>
+        <result column="service_name" property="serviceName"/>
+        <result column="probe_type" property="probeType"/>
+        <result column="target_endpoint" property="targetEndpoint"/>
+        <result column="threshold_config" property="thresholdConfig"/>
+        <result column="interval_cron" property="intervalCron"/>
+        <result column="ai_agent_id" property="aiAgentId"/>
+        <result column="quiet_window_minutes" property="quietWindowMinutes"/>
+        <result column="status" property="status"/>
+        <result column="last_check_time" property="lastCheckTime"/>
+        <result column="last_check_status" property="lastCheckStatus"/>
+        <result column="last_error_msg" property="lastErrorMsg"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.faultpatrol.infrastructure.dao.po.PatrolTarget" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patrol_target (
+            service_name, probe_type, target_endpoint, threshold_config, interval_cron,
+            ai_agent_id, quiet_window_minutes, status, create_time, update_time
+        ) VALUES (
+            #{serviceName}, #{probeType}, #{targetEndpoint}, #{thresholdConfig}, #{intervalCron},
+            #{aiAgentId}, #{quietWindowMinutes}, #{status}, now(), now()
+        )
+    </insert>
+
+    <select id="queryById" parameterType="java.lang.Long" resultMap="PatrolTargetMap">
+        SELECT id, service_name, probe_type, target_endpoint, threshold_config, interval_cron,
+               ai_agent_id, quiet_window_minutes, status, last_check_time, last_check_status,
+               last_error_msg, create_time, update_time
+        FROM patrol_target
+        WHERE id = #{id}
+    </select>
+
+    <select id="queryByServiceName" parameterType="java.lang.String" resultMap="PatrolTargetMap">
+        SELECT id, service_name, probe_type, target_endpoint, threshold_config, interval_cron,
+               ai_agent_id, quiet_window_minutes, status, last_check_time, last_check_status,
+               last_error_msg, create_time, update_time
+        FROM patrol_target
+        WHERE service_name = #{serviceName}
+        LIMIT 1
+    </select>
+
+    <select id="queryActiveTargets" resultMap="PatrolTargetMap">
+        SELECT id, service_name, probe_type, target_endpoint, threshold_config, interval_cron,
+               ai_agent_id, quiet_window_minutes, status, last_check_time, last_check_status,
+               last_error_msg, create_time, update_time
+        FROM patrol_target
+        WHERE status = 1
+    </select>
+
+    <select id="queryAll" resultMap="PatrolTargetMap">
+        SELECT id, service_name, probe_type, target_endpoint, threshold_config, interval_cron,
+               ai_agent_id, quiet_window_minutes, status, last_check_time, last_check_status,
+               last_error_msg, create_time, update_time
+        FROM patrol_target
+        ORDER BY create_time DESC
+    </select>
+
+    <update id="updateCheckStatus" parameterType="cn.faultpatrol.infrastructure.dao.po.PatrolTarget">
+        UPDATE patrol_target
+        SET last_check_time = now(),
+            last_check_status = #{lastCheckStatus},
+            last_error_msg = #{lastErrorMsg},
+            update_time = now()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE patrol_target
+        SET status = #{status},
+            update_time = now()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

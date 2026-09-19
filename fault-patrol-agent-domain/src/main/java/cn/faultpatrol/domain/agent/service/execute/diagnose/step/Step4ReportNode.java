@@ -7,8 +7,11 @@ import cn.faultpatrol.domain.agent.model.valobj.DiagnosisReportVO;
 import cn.faultpatrol.domain.agent.model.valobj.enums.AiClientTypeEnumVO;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.factory.DefaultDiagnoseAgentExecuteStrategyFactory;
 import cn.faultpatrol.domain.agent.service.execute.diagnose.step.support.ReportSectionExtractor;
+import cn.faultpatrol.domain.agent.service.remediation.IRemediationService;
 import cn.faultpatrol.types.design.framework.tree.StrategyHandler;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -26,6 +29,15 @@ import java.util.Map;
 @Slf4j
 @Service
 public class Step4ReportNode extends AbstractExecuteSupport {
+
+    @Resource
+    private IRemediationService remediationService;
+
+    @Resource
+    private cn.faultpatrol.domain.agent.service.notify.INotificationService notificationService;
+
+    @Resource
+    private cn.faultpatrol.domain.agent.service.learning.IPostmortemService postmortemService;
 
     /** 流式报告输出为空时的兜底文案 */
     private static final String FALLBACK_PREFIX = "## 诊断报告（兜底输出）\n\n> 模型流式报告生成失败";
@@ -155,6 +167,29 @@ public class Step4ReportNode extends AbstractExecuteSupport {
 
             repository.saveDiagnosisReport(reportVO);
             log.info("诊断报告已落库，会话ID：{}", requestParameter.getSessionId());
+
+            // 自动提取结构化处置动作供 HITL 审批流转
+            if (StringUtils.isNotBlank(reportVO.getRemediation())) {
+                try {
+                    remediationService.extractAndSaveActions(requestParameter.getSessionId(), reportVO.getRemediation());
+                } catch (Exception ex) {
+                    log.warn("提取结构化处置动作失败（不影响主诊断流程）：{}", ex.getMessage());
+                }
+            }
+
+            // 多渠道通知广播（钉钉 / 飞书 / 企业微信 / Slack / Webhook）
+            try {
+                notificationService.sendDiagnosisReportNotification(reportVO);
+            } catch (Exception ex) {
+                log.warn("广播诊断报告通知异常（不影响主诊断流程）：{}", ex.getMessage());
+            }
+
+            // 自进化学习闭环：将实战成功排查经验自动沉淀为知识库 Playbook
+            try {
+                postmortemService.learnAndSynthesizePlaybook(reportVO);
+            } catch (Exception ex) {
+                log.warn("自主学习沉淀实战手册异常（不影响主诊断流程）：{}", ex.getMessage());
+            }
         } catch (Exception e) {
             log.error("诊断报告落库失败：{}", e.getMessage(), e);
         }

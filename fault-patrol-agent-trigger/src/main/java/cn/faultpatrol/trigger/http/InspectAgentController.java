@@ -55,6 +55,9 @@ public class InspectAgentController implements IInspectAgentService {
     @Resource
     private cn.faultpatrol.domain.agent.service.alert.IAlertDedupService alertDedupService;
 
+    @Resource
+    private cn.faultpatrol.trigger.http.alert.adapter.AlertAdapterFactory alertAdapterFactory;
+
     @RequestMapping(value = "diagnose", method = RequestMethod.POST)
     @Override
     public ResponseBodyEmitter diagnose(@RequestBody DiagnoseRequestDTO request, HttpServletResponse response) {
@@ -93,11 +96,12 @@ public class InspectAgentController implements IInspectAgentService {
         }
     }
 
-    @RequestMapping(value = "alert", method = RequestMethod.POST)
-    @Override
-    public ResponseBodyEmitter alert(@RequestBody String rawBody,
-                                     @RequestHeader(value = "X-Webhook-Signature", required = false) String signature,
-                                     HttpServletResponse response) {
+    @RequestMapping(value = {"alert", "alert/{source}"}, method = RequestMethod.POST)
+    public ResponseBodyEmitter alertWithSource(@PathVariable(value = "source", required = false) String source,
+                                               @RequestBody String rawBody,
+                                               @RequestHeader(value = "X-Webhook-Signature", required = false) String signature,
+                                               jakarta.servlet.http.HttpServletRequest servletRequest,
+                                               HttpServletResponse response) {
         // 签名校验（配置密钥后启用）
         if (StringUtils.isNotBlank(alertProperties.getWebhookSecret())) {
             if (!SecurityUtil.verifySignature(alertProperties.getWebhookSecret(), rawBody, signature)) {
@@ -108,11 +112,12 @@ public class InspectAgentController implements IInspectAgentService {
 
         AlertRequestDTO request;
         try {
-            request = JSON.parseObject(rawBody, AlertRequestDTO.class);
+            java.util.Map<String, String> headers = extractHeaders(servletRequest);
+            request = alertAdapterFactory.adapt(source, rawBody, headers);
         } catch (Exception e) {
             return errorEmitter("告警请求体解析失败：" + e.getMessage());
         }
-        log.info("告警接入请求开始，请求信息：{}", JSON.toJSONString(request));
+        log.info("告警接入请求开始，来源适配: [{}], 请求信息：{}", source != null ? source : "auto", JSON.toJSONString(request));
 
         try {
             // 设置SSE响应头
@@ -443,6 +448,22 @@ public class InspectAgentController implements IInspectAgentService {
             log.error("发送错误信息失败：{}", ex.getMessage(), ex);
         }
         return errorEmitter;
+    }
+
+    @Override
+    public ResponseBodyEmitter alert(String rawBody, String signature, HttpServletResponse response) {
+        return alertWithSource(null, rawBody, signature, null, response);
+    }
+
+    private java.util.Map<String, String> extractHeaders(jakarta.servlet.http.HttpServletRequest request) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (request == null) return map;
+        java.util.Enumeration<String> names = request.getHeaderNames();
+        while (names != null && names.hasMoreElements()) {
+            String name = names.nextElement();
+            map.put(name.toLowerCase(), request.getHeader(name));
+        }
+        return map;
     }
 
 }

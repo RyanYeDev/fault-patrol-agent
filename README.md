@@ -1,365 +1,365 @@
-# Fault Patrol Agent — 业务系统智能故障巡检 Agent
+# Fault Patrol Agent — 企业级微服务智能故障巡检与自愈 Agent 平台
 
-面向业务系统故障定位场景的智能巡检 Agent 平台。通过组件化配置实现 Agent 灵活装配，基于 MCP 协议统一封装多个巡检工具，采用「规划-执行-监督-总结」多阶段协作与 RAG 知识库增强，自动完成故障取证、根因分析与处置建议输出，形成从告警发现、工具调用到诊断报告生成的完整故障排查链路。
+<p align="center">
+  <img src="https://img.shields.io/badge/JDK-17%2B-blue.svg" alt="JDK 17+" />
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.4.3-brightgreen.svg" alt="Spring Boot 3.4" />
+  <img src="https://img.shields.io/badge/Spring%20AI-1.0.0--M6-orange.svg" alt="Spring AI" />
+  <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-purple.svg" alt="MCP Protocol" />
+  <img src="https://img.shields.io/badge/Architecture-DDD%20%2F%20Microservice%20SRE-darkblue.svg" alt="DDD SRE" />
+  <img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License" />
+</p>
 
-## 技术栈
+---
 
-| 分类 | 技术 |
-|------|------|
-| 基础框架 | Spring Boot 3.4、Java 17、DDD 分层架构 |
-| 数据存储 | MySQL（配置/报告）、Redis（巡检对象）、PostgreSQL + pgvector（向量知识库） |
-| 中间件 | RabbitMQ（巡检对象）、Prometheus（指标）、Jaeger（链路） |
-| AI 能力 | Spring AI 1.0（ChatClient / PgVectorStore / Advisor）、任意 OpenAI 兼容模型 |
-| 工具协议 | MCP（Model Context Protocol），SSE / stdio 双传输 |
-| 交互方式 | SSE 流式输出（四阶段过程实时回流） |
+## 📖 平台定位
 
-## 核心特性
+**Fault Patrol Agent** 是一个面向现代云原生与微服务架构的**企业级自主 SRE 故障巡检、根因定位与自愈处置 Agent 平台**。
 
-### 1. 多阶段协作与流式交互
-基于 Plan-and-Execute 模式将故障排查拆分为四个阶段，通过责任链驱动阶段流转：
+项目深度借鉴了顶尖开源 Agent 架构（如 **NousResearch/Hermes Agent** 的自主规划与自我演进闭环）以及 Google SRE 事故指挥体系，打破传统监控告警「收到报警 -> 人工排查 -> 查日志翻指标 -> 编写复盘」的繁琐被动流程，提供：
+- **多源告警无缝接入**：原生兼容 Prometheus Alertmanager、Grafana Alerting、CNCF CloudEvents 与微服务 Actuator；
+- **主动式微服务守望（Watchdog）**：微服务一键自注册、健康探针自适应心跳检测、防抖与静默窗口；
+- **MCP 取证协议与四阶段自主规划（Plan-and-Execute）**：规划（Plan）➔ 取证（Evidence）➔ 监督（Supervision）➔ 总结（Report）；
+- **人机协同（HITL）处置自愈引擎**：结构化提炼运维动作、风险分级、Dry-Run 预演沙箱与人机审批流；
+- **多通道通知矩阵**：钉钉（加签）、飞书（交互卡片）、企业微信、Slack、通用 Webhook 实时送达；
+- **Hermes 式故障经验自学习**：诊断完毕自动生成标准化故障实战复盘手册（Postmortem Playbook），并向量化归档至 RAG 知识库，实现「**越巡越聪明，遇难自演进**」。
 
-```
-故障分析规划 (Plan) ──▶ 多工具取证执行 (Evidence) ──▶ 证据质量监督 (Supervision) ──▶ 诊断报告 (Report)
-        ▲                                                      │
-        └──────────── FAIL / OPTIMIZE 回环重新取证 ◀─────────────┘
-```
+---
 
-- 规划节点结合执行历史评估进度，制定取证策略（指标 / 链路 / 业务数据的组合）
-- 取证节点调用绑定的 MCP 巡检工具完成多工具协同交叉取证
-- 监督节点对证据做质量检查（PASS / FAIL / OPTIMIZE），不通过则改写任务回环重新取证，直至收敛或达到最大步数
-- 全链路 SSE 流式输出：`plan` / `evidence` / `supervision` / `report` / `error` / `complete` 六类消息，报告阶段逐 token 打字机输出
-- 支持会话级追问：同一 sessionId 复用多轮上下文
-
-### 2. 多轮上下文与 RAG 增强
-- 对话记忆 Advisor 维护多轮诊断上下文
-- 故障手册（库存扣减、分布式锁、支付回调、MQ 积压、缓存一致性）经 Tika 解析 + TokenTextSplitter 切块向量化写入 PGVector，带 `knowledge` 标签
-- `RagAnswerAdvisor` 在诊断阶段自动召回相关故障手册（标签过滤 + 相似度阈值），补充 Agent 上下文，降低故障知识遗漏
-
-### 3. MCP 工具调用框架
-独立部署的巡检工具 MCP 服务器（`fault-patrol-agent-mcp-server`），统一封装六类只读巡检工具：
-
-| 工具 | 能力 |
-|------|------|
-| 业务数据 | 只读 SQL 查询（SELECT 限定 + 表白名单 + 行数上限） |
-| Redis | 键扫描、键信息、内存、慢日志 |
-| RabbitMQ | 概览、队列积压、连接、消费者 |
-| 容器 | 容器列表、状态、日志、资源占用 |
-| Prometheus | 瞬时/区间指标查询、活跃告警、采集目标 |
-| Jaeger | 服务/操作列表、链路检索、单链路详情 |
-
-- 全部工具只读设计，巡检过程对业务零影响
-- 客户端按 MCP 配置统一超时控制；每个工具独立 enabled 开关，未启用/不可达时返回明确错误而不影响其他工具
-- 工具与模型的绑定关系由数据库配置驱动，Agent 根据故障类型动态编排工具组合
-
-### 4. 可观测链路整合
-将「告警 → 指标 → 链路 → 业务数据」纳入统一取证维度：
-
-- 告警 webhook 自动发起诊断任务（`POST /api/v1/inspect/alert`）
-- 诊断过程交叉取证：Prometheus 指标确认异常水位 → Jaeger 链路定位异常节点 → 业务数据核对影响面 → 中间件检查佐证根因
-- 输出含「故障概述 / 根因分析 / 处置建议 / 预防措施」的结构化诊断报告，落库可查询
-
-### 5. 动态装配与扩展
-基于责任链装配机制，将 API、Model、MCP Tool、Client 等组件模块化封装：
-
-```
-ai_client_api ─▶ ai_client_tool_mcp ─▶ ai_client_model ─▶ ai_client_advisor ─▶ ai_client
-     (LLM 接口)      (MCP 连接)          (模型+工具回调)       (记忆/RAG)          (ChatClient)
-```
-
-全部组件由 MySQL 配置表驱动，运行时动态注册进 Spring 容器；修改配置 + 触发装配即可完成 Agent 能力调整，无需改代码。四阶段提示词同样存于配置表，可针对不同业务域定制巡检 Agent。
-
-## 架构
+## 🏛️ 系统总体架构
 
 ```mermaid
-flowchart LR
-    subgraph 接入层
-        A1[告警 Webhook]
-        A2[诊断 API / 追问]
-        A3[定时巡检任务]
+flowchart TD
+    subgraph 监控与告警输入层 ["1. 监控告警与微服务输入层 (Ingestion & Probes)"]
+        direction LR
+        S1["Prometheus Alertmanager"] -->|Webhook| INGEST["告警适配器工厂<br/>(AlertAdapterFactory)"]
+        S2["Grafana Alerting"] -->|Webhook| INGEST
+        S3["CNCF CloudEvents"] -->|Event| INGEST
+        S4["业务微服务 Actuator"] -->|Heartbeat / Down| INGEST
+        S5["主动式微服务探针 Watchdog<br/>(定时探活 / 指标巡检)"] -->|异常检测 + 防抖窗口| DISPATCH["SRE Agent 调度分发中心<br/>(AgentDispatchService)"]
+        INGEST -->|指纹去重 & 归一化| DISPATCH
     end
 
-    subgraph 巡检 Agent 平台
-        B1[Agent 调度服务<br/>策略分发]
-        B2[诊断执行链<br/>Plan→Evidence→Supervision→Report]
-        B3[装配服务 Armory<br/>API→MCP→Model→Advisor→Client]
-        B4[Advisor<br/>对话记忆 + 故障手册 RAG]
+    subgraph 核心智能体引擎 ["2. 核心自主智能体诊断链路 (Autonomous SRE Agent)"]
+        direction TB
+        DISPATCH --> N1["Step 1: 故障分析与策略规划 (Plan)"]
+        N1 --> N2["Step 2: 多工具交叉取证执行 (Evidence)"]
+        N2 --> N3["Step 3: 证据链完备性监督评估 (Supervision)"]
+        N3 -- 证据不足 / 质量不收敛 --> N1
+        N3 -- 监督通过 (PASS) --> N4["Step 4: 根因剖析与诊断报告生成 (Report)"]
+        
+        N1 & N2 & N4 <==> MEM["会话上下文记忆<br/>(ChatMemory Advisor)"]
+        N1 & N2 & N4 <==> RAG["故障手册向量召回<br/>(PgVector RAG Advisor)"]
     end
 
-    subgraph 巡检工具 MCP 服务器
-        C1[业务数据工具]
-        C2[Redis / MQ 工具]
-        C3[容器工具]
-        C4[Prometheus / Jaeger 工具]
+    subgraph MCP工具服务集群 ["3. 巡检工具服务器 (MCP Server - Read-Only)"]
+        direction LR
+        MCP_CLI["MCP Client (SSE / Stdio)"]
+        N2 <==> MCP_CLI
+        MCP_CLI --> T_SQL["只读SQL查询 (带白名单沙箱)"]
+        MCP_CLI --> T_REDIS["Redis 状态 / 慢日志 / 内存分析"]
+        MCP_CLI --> T_MQ["RabbitMQ 积压与队列诊断"]
+        MCP_CLI --> T_K8S["容器 / Pod / 进程运行状态"]
+        MCP_CLI --> T_PROM["Prometheus 指标采样"]
+        MCP_CLI --> T_JAEGER["Jaeger 分布式全链路追踪"]
     end
 
-    subgraph 数据层
-        D1[(MySQL<br/>配置 + 诊断报告)]
-        D2[(pgvector<br/>故障手册向量库)]
-        D3[业务 Redis]
-        D4[业务 RabbitMQ]
-        D5[Prometheus]
-        D6[Jaeger]
+    subgraph 处置与通知矩阵 ["4. 人机协同自愈与多渠道通知 (Remediation & Notification)"]
+        direction TB
+        N4 --> REMED["HITL 处置自愈引擎<br/>(提取指令 / 风险评估 / 审批 / Dry-Run)"]
+        N4 --> NOTIFY["多通道通知分发中心<br/>(NotificationService)"]
+        
+        NOTIFY --> C_DD["钉钉机器人 (HMAC-SHA256 加签)"]
+        NOTIFY --> C_FS["飞书互动卡片 (Interactive Card)"]
+        NOTIFY --> C_WX["企业微信群机器人 (Markdown)"]
+        NOTIFY --> C_SLACK["Slack Incoming Webhook"]
+        NOTIFY --> C_WEBHOOK["外部监控工单系统 (Generic Webhook)"]
     end
 
-    A1 --> B1
-    A2 --> B1
-    A3 --> B1
-    B1 --> B2
-    B2 --> B3
-    B2 --> B4
-    B4 --> D2
-    B2 -- MCP 调用 --> C1 & C2 & C3 & C4
-    C1 --> D1
-    C2 --> D3 & D4
-    C4 --> D5 & D6
-    B3 --> D1
+    subgraph 经验沉淀闭环 ["5. Hermes 自主进化知识库 (Continuous Learning Loop)"]
+        direction TB
+        N4 --> POSTMORTEM["Postmortem 自动复盘合成器<br/>(PostmortemService)"]
+        POSTMORTEM -->|生成实战手册 Markdown| RAG_STORE["写入 PGVector 向量知识库<br/>(tag: fault-handbook)"]
+        RAG_STORE -.->|后续诊断自动召回| RAG
+    end
+
+    style S1 fill:#f9f,stroke:#333,stroke-width:1px
+    style S2 fill:#f9f,stroke:#333,stroke-width:1px
+    style S3 fill:#f9f,stroke:#333,stroke-width:1px
+    style S4 fill:#f9f,stroke:#333,stroke-width:1px
+    style DISPATCH fill:#bbf,stroke:#333,stroke-width:2px
+    style N4 fill:#bfb,stroke:#333,stroke-width:2px
+    style REMED fill:#ffd,stroke:#333,stroke-width:2px
+    style POSTMORTEM fill:#dfd,stroke:#333,stroke-width:2px
 ```
 
-## 模块说明
+---
 
-```
-fault-patrol-agent
-├── fault-patrol-agent-api               # 对外接口与 DTO
-├── fault-patrol-agent-trigger           # HTTP 接入层：诊断/告警 SSE 接口、配置管理接口、定时巡检任务
-├── fault-patrol-agent-domain            # 领域层：四阶段诊断执行链、装配服务、RAG 服务、任务服务
-├── fault-patrol-agent-infrastructure    # 基础设施层：DAO / 仓储实现 / 持久化
-├── fault-patrol-agent-types             # 基础组件：责任链框架、任务调度框架、公共枚举
-├── fault-patrol-agent-app               # 启动装配：Spring Boot 应用、数据源、向量库 Bean
-├── fault-patrol-agent-mcp-server        # 巡检工具 MCP 服务器（独立部署，端口 8092）
-├── docs/sql                             # MySQL 初始化 SQL、pgvector 初始化 SQL
-├── docs/fault-manuals                   # 故障手册（RAG 知识库源文件）
-└── docker-compose.yml                   # 一键启动完整环境
-```
+## 🌟 核心特性总览
 
-## 快速开始
+| 能力维度 | 传统运维监控 / 自动化脚本 | Fault Patrol Agent |
+|:---|:---|:---|
+| **接入模式** | 紧耦合、专用脚本、各系统格式不一 | **统一适配器**：Alertmanager、Grafana、CloudEvents、Actuator 一键适配 |
+| **排查方式** | 人工登录服务器、逐个翻查指标与日志 | **Plan-and-Execute 自主决策**：智能编排取证路径，自主假设-验证-收敛 |
+| **工具协议** | 私有 SDK、代码入侵大 | **MCP（Model Context Protocol）标准协议**：即插即用、只读安全沙箱 |
+| **处置决策** | 人工编写脚本，极易发生敲错命令风险 | **HITL 审批工作流**：风险等级自动定级、Dry-Run 预演演练、审批留痕 |
+| **告警通知** | 机械简单的纯文本报警短信或群消息 | **富交互多通道矩阵**：钉钉加签、飞书互动卡片、企业微信、Slack 实时流送 |
+| **知识沉淀** | 人工撰写复盘文档，往往沦为形式 | **Hermes 自主学习闭环**：结案自动提炼标准手册并写入 RAG，下次自动召回 |
 
-### 1. 一键启动（Docker）
+---
+
+## 🚀 快速开始
+
+### 环境依赖
+- **JDK**: 17+ (推荐 Eclipse Temurin / Azul Zulu 17)
+- **构建工具**: Maven 3.8+
+- **存储依赖**: MySQL 8.0+、PostgreSQL 14+（安装 `pgvector` 扩展）、Redis 6+（可选）
+- **AI 模型**: 任意 OpenAI 兼容 API 规范（如 DeepSeek V3/R1、Qwen、vLLM、Ollama 本地部署等）
+
+### 1. 数据库初始化
 
 ```bash
-docker compose up -d
+# 1. 导入 MySQL 元数据表结构（包含 Agent 装配、处置表、微服务目标表、通知渠道表等）
+mysql -u root -p < docs/sql/fault-patrol-agent.sql
+
+# 2. 初始化 PostgreSQL pgvector 向量知识库
+psql -U postgres -d postgres < docs/sql/fault-patrol-agent-pgvector.sql
 ```
 
-启动后：
+### 2. 配置文件说明 (`application-dev.yml`)
 
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| 主应用 | http://localhost:8091 | 巡检诊断 Agent 平台 |
-| 巡检工具 MCP | http://localhost:8092/sse | MCP SSE 端点 |
-| RabbitMQ 控制台 | http://localhost:15672 | guest / guest |
-| Prometheus | http://localhost:9090 | 指标数据源 |
-| Jaeger UI | http://localhost:16686 | 链路数据源 |
+```yaml
+spring:
+  ai:
+    openai:
+      base-url: https://api.deepseek.com/v1   # 或其它 OpenAI 兼容网关
+      api-key: sk-your-llm-api-key
+    vectorstore:
+      pgvector:
+        host: localhost
+        port: 5432
+        database: postgres
+        username: postgres
+        password: password
 
-> 密钥通过 `.env` 文件注入（已 gitignore）：复制 `.env.example` 为 `.env` 并填入你自己的 `LLM_API_KEY` / `EMBEDDING_API_KEY` 后再启动。
+faultpatrol:
+  security:
+    enabled: true
+    inspect-api-key: "patrol-secret-key-12345" # 巡检接口鉴权 Key
+    admin-api-key: "admin-secret-key-12345"     # 管理控制台鉴权 Key
+  alert:
+    webhook-secret: "my-webhook-hmac-secret"   # 告警验签秘钥
+    dedup-window-minutes: 30                    # 告警指纹去重窗口
+```
 
-### 2. 本地开发启动
-
-依赖：MySQL 8、PostgreSQL（pgvector）、JDK 17、Maven 3.9。
+### 3. 一键编译与测试
 
 ```bash
-# 1. 初始化数据库
-mysql -uroot -p < docs/sql/fault-patrol-agent.sql
-psql -U postgres < docs/sql/fault-patrol-agent-pgvector.sql
+# 验证编译与全量单元测试（包含 50+ 单元测试用例）
+mvn clean test
+```
 
-# 2. 配置密钥（application-dev.yml 或环境变量）
-# LLM_BASE_URL / LLM_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_API_KEY
-# 本地开发时需将 MCP 工具地址改为本机：
-# UPDATE ai_client_tool_mcp SET transport_config = '{"baseUri":"http://localhost:8092","sseEndpoint":"/sse"}' WHERE mcp_id = '9001';
+### 4. 启动服务
 
-# 3. 启动巡检工具 MCP 服务器（端口 8092）
+```bash
+# 终端 1：启动只读巡检 MCP 工具服务器 (默认端口 8092)
 mvn -pl fault-patrol-agent-mcp-server spring-boot:run
 
-# 4. 启动主应用（端口 8091）
+# 终端 2：启动主巡检控制平面 (默认端口 8091)
 mvn -pl fault-patrol-agent-app spring-boot:run
 ```
 
-### 3. 导入故障手册（RAG 知识库）
+---
 
-启动后将 `docs/fault-manuals` 下的故障手册入库（knowledge 标签固定为 `fault-handbook`）：
+## 🔌 外部微服务系统无缝对接指南
 
-```bash
-curl -X POST http://localhost:8091/api/v1/admin/ai-client-rag-order/file/upload \
-  -F "name=故障手册-库存扣减" \
-  -F "tag=fault-handbook" \
-  -F "files=@docs/fault-manuals/01-库存扣减故障手册.md"
-```
+Fault Patrol Agent 设计初衷就是作为独立微服务组件，赋能企业内部其它微服务（如电商订单中心、支付网关、仓储物流系统等）。
 
-重复上述命令导入其余手册（分布式锁、支付回调、MQ 积压、缓存一致性）。
+### 方式一：微服务一键自注册与主动守望 (Watchdog)
 
-### 4. 发起一次故障诊断
+任何 Spring Boot 微服务在启动时，只需通过 HTTP 调用注册接口即可被巡检平台纳入主动探活范围：
 
 ```bash
-curl -N -X POST http://localhost:8091/api/v1/inspect/diagnose \
+curl -X POST http://localhost:8091/api/v1/inspect/patrol/microservice/register \
   -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
+  -H "X-Api-Key: patrol-secret-key-12345" \
   -d '{
-    "aiAgentId": "10001",
-    "message": "订单服务下单接口错误率突增，疑似库存扣减异常，请定位根因并给出处置建议",
-    "sessionId": "session_demo_001",
-    "maxStep": 3
+    "serviceName": "order-service",
+    "probeType": "HTTP_HEALTH",
+    "targetEndpoint": "http://order-service.prod:8080/actuator/health",
+    "intervalCron": "0 0/5 * * * ?",
+    "quietWindowMinutes": 30,
+    "aiAgentId": "10001"
+  }'
+```
+> **自主防抖特性**：当服务探测失败后，Watchdog 引擎会自动检查 `quietWindowMinutes`（静默防抖期）。同一故障持续期间，不会狂轰滥炸重复发起多余的诊断链，有效节约 Token 消耗。
+
+---
+
+### 方式二：Prometheus Alertmanager 告警 Webhook
+
+在 Alertmanager 的配置文件 `alertmanager.yml` 中添加 Webhook 接收端点：
+
+```yaml
+receivers:
+  - name: 'fault-patrol-agent'
+    webhook_configs:
+      - url: 'http://fault-patrol-agent:8091/api/v1/inspect/alert/alertmanager'
+        send_resolved: true
+        http_config:
+          bearer_token: 'patrol-secret-key-12345'
+```
+收到报警后，平台自动完成：
+1. 提取受影响服务、告警摘要与错误堆栈；
+2. 计算告警指纹进行防重收敛；
+3. 唤醒四阶段诊断智能体拉取指标与链路交叉排查。
+
+---
+
+### 方式三：Grafana Alerting Webhook
+
+在 Grafana「Contact points」添加类型为 `Webhook`：
+- **URL**: `http://fault-patrol-agent:8091/api/v1/inspect/alert/grafana`
+- **HTTP Header**: `X-Api-Key: patrol-secret-key-12345`
+
+---
+
+### 方式四：微服务异常自上报 (SDK / HTTP)
+
+当微服务发生降级、数据库连接池耗尽或线程池阻塞时，可在微服务框架的全局异常捕获器中调用：
+
+```bash
+curl -X POST http://localhost:8091/api/v1/inspect/alert/microservice \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: patrol-secret-key-12345" \
+  -d '{
+    "serviceName": "payment-service",
+    "instanceId": "payment-service-10.0.1.25",
+    "status": "DOWN",
+    "reason": "HikariPool-1 - Connection is not available, request timed out after 30000ms",
+    "metrics": {
+      "activeConnections": 100,
+      "pendingThreads": 45
+    }
   }'
 ```
 
-告警接入（webhook 自动发起诊断）：
+---
+
+## 🛠️ 人机协同（HITL）处置自愈与审批流程
+
+智能体出具诊断报告后，若包含生产环境修复建议，系统会自动提取为结构化的处置行动对象：
+
+### 1. 查询会话待审批动作
 
 ```bash
-curl -N -X POST http://localhost:8091/api/v1/inspect/alert \
+curl "http://localhost:8091/api/v1/inspect/remediation/actions?sessionId=session_demo_001" \
+  -H "X-Api-Key: patrol-secret-key-12345"
+```
+
+响应示例：
+```json
+{
+  "code": "0000",
+  "info": "成功",
+  "data": [
+    {
+      "actionId": "act_8a7d1b32",
+      "title": "重启订单服务Pod",
+      "actionType": "RESTART_POD",
+      "riskLevel": "MEDIUM",
+      "command": "kubectl rollout restart deployment/order-service -n prod",
+      "rollbackPlan": "若重启后依然异常，准备回滚上一镜像版本",
+      "status": "PROPOSED"
+    }
+  ]
+}
+```
+
+### 2. 演练测试 (Dry-Run 模式)
+
+在未经审批前，支持对该运维指令进行 Dry-Run 预演验证语法和连通性：
+
+```bash
+curl -X POST "http://localhost:8091/api/v1/inspect/remediation/execute?actionId=act_8a7d1b32&dryRun=true" \
+  -H "X-Api-Key: patrol-secret-key-12345"
+```
+
+### 3. SRE 工程师审批通过
+
+```bash
+curl -X POST http://localhost:8091/api/v1/inspect/remediation/approve \
   -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
+  -H "X-Api-Key: patrol-secret-key-12345" \
   -d '{
-    "alertName": "订单服务错误率告警",
-    "severity": "critical",
-    "source": "prometheus",
-    "alertContent": "order-service 5xx 错误率 5 分钟均值超过 10%"
+    "actionId": "act_8a7d1b32",
+    "approver": "sre-lead",
+    "comment": "已核实堆栈，同意重启恢复"
   }'
 ```
 
-### 5. 查询诊断报告
+---
+
+## 📢 多渠道通知中心配置
+
+配置多通道通知群，实时接收精美的 Markdown 诊断卡片和高危处置审批提醒：
 
 ```bash
-# 按会话查询
-curl "http://localhost:8091/api/v1/inspect/reports?sessionId=session_demo_001"
+# 注册飞书互动卡片通知渠道
+curl -X POST http://localhost:8091/api/v1/inspect/notification/channel \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: patrol-secret-key-12345" \
+  -d '{
+    "channelId": "feishu_sre_group",
+    "channelName": "SRE 核心保障大群",
+    "channelType": "FEISHU",
+    "webhookUrl": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx",
+    "status": 1
+  }'
 
-# 按 ID 查询
-curl "http://localhost:8091/api/v1/inspect/report/1"
+# 注册钉钉群机器人（支持加签校验）
+curl -X POST http://localhost:8091/api/v1/inspect/notification/channel \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: patrol-secret-key-12345" \
+  -d '{
+    "channelId": "dingtalk_oncall",
+    "channelName": "OnCall 值班保障群",
+    "channelType": "DINGTALK",
+    "webhookUrl": "https://oapi.dingtalk.com/robot/send?access_token=xxxx",
+    "secret": "SECxxxxxxxxxxxxxxxxxxxxxx",
+    "status": 1
+  }'
 ```
 
-## SSE 消息协议
+---
 
-诊断过程实时回流的 SSE 消息为 `data: {json}\n\n` 格式：
+## 🧠 Hermes 式自主学习与知识库沉淀机制
 
-| type | 阶段 | subType（示例） |
-|------|------|----------------|
-| `plan` | 故障分析规划 | plan_status / plan_history / plan_strategy / plan_progress / plan_task_status |
-| `evidence` | 多工具取证执行 | evidence_target / evidence_process / evidence_result / evidence_quality |
-| `supervision` | 证据质量监督 | assessment / issues / suggestions / score / pass |
-| `report` | 诊断报告 | 流式 delta 增量（delta=true 追加同一气泡） |
-| `error` | 错误信息 | — |
-| `complete` | 完成标识 | — |
+平台集成 **Postmortem 经验学习闭环**：
+1. **结案监听**：当诊断执行链第 4 阶段完成且收敛出明确根因时，自动触发 `PostmortemService`；
+2. **规范化合成**：智能体按照 SRE 最佳实践，将本次故障自动格式化为标准排查手册（涵盖故障现场、定性结论、经过验证的排查路径、防范建议）；
+3. **入库向量化**：通过 `IRagService.storeTextContent` 自动打上 `fault-handbook` 标签并存储进 `pgvector`；
+4. **自增强召回**：当未来再次遇到类似指标异常或相同错误关键字时，RAG 模块在第一阶段即可命中该实战手册，实现自愈效率指数级提升。
 
-## 配置说明
+---
 
-### 平台配置（application.yml / 环境变量）
-
-```yaml
-faultpatrol:
-  security:
-    enabled: true                 # 接口鉴权开关
-    inspect-api-key: ""           # 巡检接口（/api/v1/inspect/**）API Key，请求头 X-Api-Key；为空不鉴权
-    admin-api-key: ""             # 管理接口（/api/v1/admin/**）API Key；为空不鉴权
-  llm:
-    connect-timeout-ms: 30000     # LLM/Embedding 连接超时
-    read-timeout-ms: 120000       # 读取超时
-  alert:
-    default-agent-id: 10001       # 告警默认巡检智能体
-    webhook-secret: ""            # 告警签名密钥（HMAC-SHA256，X-Webhook-Signature）；为空不校验
-    dedup-window-minutes: 30      # 告警指纹去重窗口（分钟）
-spring:
-  ai:
-    retry:
-      max-attempts: 2             # LLM 调用重试次数收敛
-      backoff:
-        initial-interval: 1000ms
-        multiplier: 2
-        max-interval: 5000ms
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus   # /actuator/prometheus 平台自观测指标
-```
-
-### Agent 装配配置（MySQL）
-
-四阶段 Agent 的能力完全由 `ai_agent` / `ai_agent_flow_config` / `ai_client*` 系列表驱动：
-
-- `ai_client_api`：LLM 接口（任意 OpenAI 兼容服务，DeepSeek / 硅基流动 / vLLM 等）
-- `ai_client_tool_mcp`：MCP 工具连接（SSE / stdio，超时秒级配置）
-- `ai_client_model` + `ai_client_config`：模型与工具/顾问的绑定关系
-- `ai_client_advisor`：对话记忆（ChatMemory）与故障手册召回（RagAnswer，`filterExpression` 按知识标签过滤）
-- `ai_agent_flow_config.step_prompt`：四阶段提示词模板，可定制诊断口径
-
-修改配置后调用 `POST /api/v1/inspect/armory_agent {"agentId": "10001"}` 重新装配生效。
-
-### 巡检工具开关（fault-patrol-agent-mcp-server）
-
-```yaml
-faultpatrol:
-  tools:
-    redis:       { enabled: false, host: localhost, port: 6379 }
-    rabbitmq:    { enabled: false, management-url: http://localhost:15672 }
-    prometheus:  { enabled: false, base-url: http://localhost:9090 }
-    jaeger:      { enabled: false, base-url: http://localhost:16686 }
-    container:   { enabled: false, docker-cli: docker }
-    business-data:
-      enabled: false
-      jdbc-url: jdbc:mysql://localhost:3306/fault_patrol_agent?...
-      allowed-tables: [ orders, inventory ]   # 业务表白名单
-      max-rows: 200
-```
-
-## 目录结构
+## 📦 模块分层与 DDD 架构
 
 ```
 fault-patrol-agent
-├── fault-patrol-agent-api
-│   └── src/main/java/cn/faultpatrol/api
-│       ├── dto            # 诊断/告警/报告/配置 DTO
-│       ├── response       # 统一响应包装
-│       └── IInspectAgentService
-├── fault-patrol-agent-trigger
-│   └── src/main/java/cn/faultpatrol/trigger
-│       ├── http/InspectAgentController   # 诊断/告警 SSE、报告查询、装配
-│       ├── http/admin                    # 配置管理接口
-│       └── job/InspectTaskJob            # 定时巡检任务
-├── fault-patrol-agent-domain
-│   └── src/main/java/cn/faultpatrol/domain/agent
-│       ├── model                          # 实体与值对象
-│       ├── service/execute/diagnose       # 四阶段诊断执行链（责任链）
-│       │   └── step                       # Plan / Evidence / Supervision / Report 节点
-│       ├── service/execute/flow           # 先规划后执行策略
-│       ├── service/execute/fixed          # 固定链策略
-│       ├── service/armory                 # 组件动态装配（含数据加载策略）
-│       ├── service/rag                    # 故障手册向量化入库
-│       └── service/dispatch               # 策略分发
-├── fault-patrol-agent-infrastructure
-│   └── src/main/java/cn/faultpatrol/infrastructure
-│       ├── dao                            # MyBatis DAO + PO
-│       └── adapter/repository             # 仓储实现
-├── fault-patrol-agent-types
-│   └── src/main/java/cn/faultpatrol/types
-│       ├── design/framework/tree          # 责任链树框架
-│       ├── job                            # 任务调度框架
-│       └── common / enums / exception
-├── fault-patrol-agent-mcp-server
-│   └── src/main/java/cn/faultpatrol/mcpserver
-│       ├── config                         # 工具装配与配置属性
-│       └── tool                           # 六类只读巡检工具
-└── docs
-    ├── sql                                # 初始化 SQL
-    ├── fault-manuals                      # 故障手册（RAG 源文件）
-    └── observability/prometheus.yml       # Prometheus 配置示例
+├── fault-patrol-agent-api               # 对外 API 契约与 DTO 定义
+├── fault-patrol-agent-trigger           # 统一接入层：告警适配器、诊断 SSE、HTTP 控制器、定时调度任务
+├── fault-patrol-agent-domain            # 领域层：四阶段诊断链路、HITL自愈引擎、探针Watchdog、Hermes自学习
+├── fault-patrol-agent-infrastructure    # 基础设施层：MyBatis 仓储实现、PO 持久化、外部客户端
+├── fault-patrol-agent-types             # 通用基础：设计模式树框架、枚举类、统一异常与分页组件
+├── fault-patrol-agent-app               # 装配启动：Spring Boot 配置、动态装配 Bean、单元集成测试
+├── fault-patrol-agent-mcp-server        # MCP 只读巡检服务器（独立部署，统一封装 6 类巡检工具）
+└── docs/sql                             # 完整的数据库迁移及初始化脚本
 ```
 
-## 扩展指南
+---
 
-- **新增巡检工具**：在 `fault-patrol-agent-mcp-server` 增加 `@Tool` 方法并注册进 `InspectToolsConfig`，随后在 `ai_client_tool_mcp` 增加配置即可被 Agent 调用
-- **新增诊断场景 Agent**：复制 `ai_agent_flow_config` 四阶段配置，替换 `step_prompt` 与知识标签，即可定制不同业务域的巡检 Agent
-- **新增知识库**：编写故障手册后调用 RAG 上传接口，`knowledge` 标签与 Advisor `filterExpression` 对应即可按域召回
-- **多业务域隔离**：`ai_agent.knowledge_tag` 配置业务域知识标签，诊断时 Agent 只召回该标签下的故障手册
-- **本地模型**：`ai_client_model.model_type=ollama` 时走 Ollama 本地模型（`ai_client_api.base_url` 填 Ollama 地址，无需 apiKey），适合离线环境
+## 🤝 贡献与开源协议
 
-## 进阶能力
+欢迎提出 Issue 与 Pull Request！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解代码规范与提交流程。
 
-| 能力 | 说明 |
-|------|------|
-| 诊断取消 | `POST /api/v1/inspect/cancel?sessionId=xxx`；前端断开 SSE 时自动联动取消，各阶段节点在每轮开始前检查取消标记 |
-| 告警去重 | 告警指纹（SHA-256）+ 去重窗口，重复告警返回合并通知不再重复诊断（`alert_dedup` 表） |
-| 工具调用轨迹 | 每次取证的工具名/入参/结果/耗时结构化记录，落库 `diagnosis_report.tool_trace` |
-| 知识库管理 | `DELETE /api/v1/admin/ai-client-rag-order/file/delete?tag=&fileName=` 按标签/文件删除向量与台账 |
-| 历史报告 | `GET /api/v1/inspect/reports/recent` 最近 50 条报告；首页「历史诊断报告」面板可视化查看 |
-| 自观测 | `/actuator/health`、`/actuator/prometheus`（faultpatrol.diagnosis.duration / count / active 指标） |
-| 单元测试 | `mvn test`：32 个单元测试（责任链/分节解析/报告提取/签名指纹/SQL 守卫/鉴权过滤器）；DAO/策略集成测试标记 @Ignore 需真实环境手动运行 |
-
-## 开源协议
-
-[Apache License 2.0](LICENSE)
+本项目采用 [Apache License 2.0](LICENSE) 开源许可证。

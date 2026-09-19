@@ -337,3 +337,78 @@ CREATE TABLE `alert_dedup` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_fingerprint` (`fingerprint`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='告警去重记录表';
+
+# ------------------------------------------------------------
+# 故障处置行动表（HITL 人机协同审批与执行）
+# ------------------------------------------------------------
+DROP TABLE IF EXISTS `remediation_action`;
+CREATE TABLE `remediation_action` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `action_id` varchar(64) NOT NULL COMMENT '处置动作唯一ID',
+  `session_id` varchar(128) NOT NULL COMMENT '诊断会话ID',
+  `title` varchar(255) NOT NULL COMMENT '动作简述',
+  `action_type` varchar(64) NOT NULL COMMENT '动作类型(RESTART_POD/SCALE_REPLICAS/DRAIN_MQ_QUEUE/CLEAR_CACHE/SWITCH_DATASOURCE/CIRCUIT_BREAK/ROLLBACK_DEPLOYMENT/MANUAL_INTERVENTION)',
+  `target_resource` varchar(255) DEFAULT NULL COMMENT '目标资源对象',
+  `risk_level` varchar(32) NOT NULL DEFAULT 'MEDIUM' COMMENT '风险等级(LOW/MEDIUM/HIGH/CRITICAL)',
+  `command` text COMMENT '执行指令或Payload',
+  `rollback_plan` text COMMENT '回滚与应急预案',
+  `status` varchar(32) NOT NULL DEFAULT 'PROPOSED' COMMENT '状态(PROPOSED/APPROVED/REJECTED/EXECUTING/SUCCESS/FAILED/ROLLED_BACK)',
+  `approval_comment` text COMMENT '审批意见/驳回原因',
+  `approved_by` varchar(64) DEFAULT NULL COMMENT '审批人',
+  `execution_log` longtext COMMENT '执行日志与输出',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_action_id` (`action_id`),
+  KEY `idx_session_id` (`session_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='故障处置行动表';
+
+# ------------------------------------------------------------
+# 巡检监控目标微服务表（Watchdog 主动巡检探针配置）
+# ------------------------------------------------------------
+DROP TABLE IF EXISTS `patrol_target`;
+CREATE TABLE `patrol_target` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `service_name` varchar(128) NOT NULL COMMENT '微服务名称',
+  `probe_type` varchar(64) NOT NULL DEFAULT 'HTTP_HEALTH' COMMENT '探针类型(HTTP_HEALTH/PROMETHEUS_METRIC/REDIS_HEALTH/RABBITMQ_QUEUE)',
+  `target_endpoint` varchar(512) NOT NULL COMMENT '探针端点/表达式',
+  `threshold_config` text COMMENT '异常判定阈值配置(JSON)',
+  `interval_cron` varchar(64) NOT NULL DEFAULT '0 0/10 * * * ?' COMMENT '巡检周期Cron',
+  `ai_agent_id` varchar(64) DEFAULT '10001' COMMENT '触发巡检绑定的智能体ID',
+  `quiet_window_minutes` int DEFAULT '30' COMMENT '告警静默窗口（分钟）',
+  `status` tinyint(1) DEFAULT '1' COMMENT '状态(0:禁用,1:启用)',
+  `last_check_time` datetime DEFAULT NULL COMMENT '最近巡检时间',
+  `last_check_status` varchar(32) DEFAULT NULL COMMENT '最近巡检状态(HEALTHY/DEGRADED/UNHEALTHY)',
+  `last_error_msg` text COMMENT '最近巡检异常信息',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_service_name` (`service_name`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='巡检监控目标表';
+
+# 预置演示目标：订单服务健康检查
+INSERT INTO `patrol_target` (`service_name`, `probe_type`, `target_endpoint`, `threshold_config`, `interval_cron`, `ai_agent_id`, `status`)
+VALUES ('order-service', 'HTTP_HEALTH', 'http://localhost:8091/actuator/health', '{"expectedStatus":"UP"}', '0 0/10 * * * ?', '10001', 1);
+
+# ------------------------------------------------------------
+# 告警与诊断报告通知渠道表
+# ------------------------------------------------------------
+DROP TABLE IF EXISTS `notification_channel`;
+CREATE TABLE `notification_channel` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `channel_id` varchar(64) NOT NULL COMMENT '渠道唯一标识',
+  `channel_name` varchar(128) NOT NULL COMMENT '渠道名称',
+  `channel_type` varchar(32) NOT NULL COMMENT '渠道类型(DINGTALK/FEISHU/WECOM/SLACK/GENERIC_WEBHOOK)',
+  `webhook_url` varchar(512) NOT NULL COMMENT 'Webhook请求地址',
+  `secret` varchar(255) DEFAULT NULL COMMENT '签名密钥',
+  `notify_severities` varchar(64) DEFAULT 'critical,warning' COMMENT '关注告警级别',
+  `status` tinyint(1) DEFAULT '1' COMMENT '状态(0:禁用,1:启用)',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_channel_id` (`channel_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='通知渠道配置表';
+

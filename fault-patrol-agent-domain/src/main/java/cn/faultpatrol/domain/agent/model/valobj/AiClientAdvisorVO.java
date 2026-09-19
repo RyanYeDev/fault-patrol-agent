@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 /**
  * 顾问配置，值对象
  *
- * 2025/6/27 18:42
  */
 @Data
 @Builder

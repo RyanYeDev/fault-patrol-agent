@@ -9,11 +9,11 @@ rem        停止服务：关闭本窗口后执行 docker compose down，或重�
 rem ============================================================
 
 echo [1/2] 启动故障巡检 Agent 平台（docker compose up -d）...
-wsl -d Ubuntu -- bash -c "cd /mnt/e/code/ai-agent-station-study && docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d"
+wsl -d Ubuntu -- bash -c "cd /mnt/e/code/fault-patrol-agent && docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d"
 
 echo.
 echo [2/2] 等待服务就绪...
-wsl -d Ubuntu -- bash -c "cd /mnt/e/code/ai-agent-station-study && for i in $(seq 1 60); do if docker logs fault-patrol-agent-app 2>&1 | grep -q '自动装配完成'; then echo READY; exit 0; fi; sleep 5; done; echo TIMEOUT; exit 1"
+wsl -d Ubuntu -- bash -c "cd /mnt/e/code/fault-patrol-agent && for i in $(seq 1 60); do if docker logs fault-patrol-agent-app 2>&1 | grep -q '自动装配完成'; then echo READY; exit 0; fi; sleep 5; done; echo TIMEOUT; exit 1"
 
 echo.
 echo ============================================================

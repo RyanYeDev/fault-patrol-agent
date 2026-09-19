@@ -19,7 +19,6 @@ import static cn.faultpatrol.domain.agent.model.valobj.enums.AiAgentEnumVO.*;
 /**
  * AiAgent 仓储服务
  *
- * 2025/6/28 18:09
  */
 @Slf4j
 @Repository
@@ -63,6 +62,15 @@ public class AgentRepository implements IAgentRepository {
 
     @Resource
     private IAlertDedupDao alertDedupDao;
+
+    @Resource
+    private IRemediationActionDao remediationActionDao;
+
+    @Resource
+    private IPatrolTargetDao patrolTargetDao;
+
+    @Resource
+    private INotificationChannelDao notificationChannelDao;
 
     @Override
     public List<AiClientApiVO> queryAiClientApiVOListByClientIds(List<String> clientIdList) {
@@ -713,6 +721,210 @@ public class AgentRepository implements IAgentRepository {
                 .status(report.getStatus())
                 .createTime(report.getCreateTime() == null ? null : java.util.Date.from(report.getCreateTime().atZone(java.time.ZoneId.systemDefault()).toInstant()))
                 .updateTime(report.getUpdateTime() == null ? null : java.util.Date.from(report.getUpdateTime().atZone(java.time.ZoneId.systemDefault()).toInstant()))
+                .build();
+    }
+
+    @Override
+    public void saveRemediationAction(RemediationActionVO vo) {
+        RemediationAction po = RemediationAction.builder()
+                .actionId(vo.getActionId())
+                .sessionId(vo.getSessionId())
+                .title(vo.getTitle())
+                .actionType(vo.getActionType())
+                .targetResource(vo.getTargetResource())
+                .riskLevel(vo.getRiskLevel())
+                .command(vo.getCommand())
+                .rollbackPlan(vo.getRollbackPlan())
+                .status(vo.getStatus())
+                .approvalComment(vo.getApprovalComment())
+                .approvedBy(vo.getApprovedBy())
+                .executionLog(vo.getExecutionLog())
+                .build();
+        remediationActionDao.insert(po);
+    }
+
+    @Override
+    public RemediationActionVO queryRemediationActionById(String actionId) {
+        RemediationAction po = remediationActionDao.queryByActionId(actionId);
+        return toRemediationActionVO(po);
+    }
+
+    @Override
+    public List<RemediationActionVO> queryRemediationActionsBySessionId(String sessionId) {
+        List<RemediationAction> list = remediationActionDao.queryBySessionId(sessionId);
+        if (list == null) return List.of();
+        return list.stream().map(this::toRemediationActionVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<RemediationActionVO> queryPendingRemediationActions() {
+        List<RemediationAction> list = remediationActionDao.queryPendingActions();
+        if (list == null) return List.of();
+        return list.stream().map(this::toRemediationActionVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public void updateRemediationStatus(String actionId, String status, String approvedBy, String comment) {
+        RemediationAction po = RemediationAction.builder()
+                .actionId(actionId)
+                .status(status)
+                .approvedBy(approvedBy)
+                .approvalComment(comment)
+                .build();
+        remediationActionDao.updateStatusAndApproval(po);
+    }
+
+    @Override
+    public void updateRemediationExecution(String actionId, String status, String executionLog) {
+        RemediationAction po = RemediationAction.builder()
+                .actionId(actionId)
+                .status(status)
+                .executionLog(executionLog)
+                .build();
+        remediationActionDao.updateExecutionResult(po);
+    }
+
+    private RemediationActionVO toRemediationActionVO(RemediationAction po) {
+        if (po == null) return null;
+        return RemediationActionVO.builder()
+                .id(po.getId())
+                .actionId(po.getActionId())
+                .sessionId(po.getSessionId())
+                .title(po.getTitle())
+                .actionType(po.getActionType())
+                .targetResource(po.getTargetResource())
+                .riskLevel(po.getRiskLevel())
+                .command(po.getCommand())
+                .rollbackPlan(po.getRollbackPlan())
+                .status(po.getStatus())
+                .approvalComment(po.getApprovalComment())
+                .approvedBy(po.getApprovedBy())
+                .executionLog(po.getExecutionLog())
+                .createTime(po.getCreateTime())
+                .updateTime(po.getUpdateTime())
+                .build();
+    }
+
+    @Override
+    public void savePatrolTarget(PatrolTargetVO vo) {
+        PatrolTarget po = PatrolTarget.builder()
+                .serviceName(vo.getServiceName())
+                .probeType(vo.getProbeType())
+                .targetEndpoint(vo.getTargetEndpoint())
+                .thresholdConfig(vo.getThresholdConfig())
+                .intervalCron(vo.getIntervalCron())
+                .aiAgentId(vo.getAiAgentId())
+                .quietWindowMinutes(vo.getQuietWindowMinutes())
+                .status(vo.getStatus() != null ? vo.getStatus() : 1)
+                .build();
+        patrolTargetDao.insert(po);
+    }
+
+    @Override
+    public PatrolTargetVO queryPatrolTargetById(Long id) {
+        return toPatrolTargetVO(patrolTargetDao.queryById(id));
+    }
+
+    @Override
+    public PatrolTargetVO queryPatrolTargetByServiceName(String serviceName) {
+        return toPatrolTargetVO(patrolTargetDao.queryByServiceName(serviceName));
+    }
+
+    @Override
+    public List<PatrolTargetVO> queryActivePatrolTargets() {
+        List<PatrolTarget> list = patrolTargetDao.queryActiveTargets();
+        if (list == null) return List.of();
+        return list.stream().map(this::toPatrolTargetVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<PatrolTargetVO> queryAllPatrolTargets() {
+        List<PatrolTarget> list = patrolTargetDao.queryAll();
+        if (list == null) return List.of();
+        return list.stream().map(this::toPatrolTargetVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public void updatePatrolTargetCheckStatus(Long id, String checkStatus, String errorMsg) {
+        PatrolTarget po = PatrolTarget.builder()
+                .id(id)
+                .lastCheckStatus(checkStatus)
+                .lastErrorMsg(errorMsg)
+                .build();
+        patrolTargetDao.updateCheckStatus(po);
+    }
+
+    private PatrolTargetVO toPatrolTargetVO(PatrolTarget po) {
+        if (po == null) return null;
+        return PatrolTargetVO.builder()
+                .id(po.getId())
+                .serviceName(po.getServiceName())
+                .probeType(po.getProbeType())
+                .targetEndpoint(po.getTargetEndpoint())
+                .thresholdConfig(po.getThresholdConfig())
+                .intervalCron(po.getIntervalCron())
+                .aiAgentId(po.getAiAgentId())
+                .quietWindowMinutes(po.getQuietWindowMinutes())
+                .status(po.getStatus())
+                .lastCheckTime(po.getLastCheckTime())
+                .lastCheckStatus(po.getLastCheckStatus())
+                .lastErrorMsg(po.getLastErrorMsg())
+                .createTime(po.getCreateTime())
+                .updateTime(po.getUpdateTime())
+                .build();
+    }
+
+    @Override
+    public void saveNotificationChannel(NotificationChannelVO vo) {
+        NotificationChannel po = NotificationChannel.builder()
+                .channelId(vo.getChannelId())
+                .channelName(vo.getChannelName())
+                .channelType(vo.getChannelType())
+                .webhookUrl(vo.getWebhookUrl())
+                .secret(vo.getSecret())
+                .notifySeverities(vo.getNotifySeverities())
+                .status(vo.getStatus() != null ? vo.getStatus() : 1)
+                .build();
+        notificationChannelDao.insert(po);
+    }
+
+    @Override
+    public NotificationChannelVO queryNotificationChannelById(String channelId) {
+        return toNotificationChannelVO(notificationChannelDao.queryByChannelId(channelId));
+    }
+
+    @Override
+    public List<NotificationChannelVO> queryActiveNotificationChannels() {
+        List<NotificationChannel> list = notificationChannelDao.queryActiveChannels();
+        if (list == null) return List.of();
+        return list.stream().map(this::toNotificationChannelVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<NotificationChannelVO> queryAllNotificationChannels() {
+        List<NotificationChannel> list = notificationChannelDao.queryAll();
+        if (list == null) return List.of();
+        return list.stream().map(this::toNotificationChannelVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public void updateNotificationChannelStatus(String channelId, Integer status) {
+        notificationChannelDao.updateStatus(channelId, status);
+    }
+
+    private NotificationChannelVO toNotificationChannelVO(NotificationChannel po) {
+        if (po == null) return null;
+        return NotificationChannelVO.builder()
+                .id(po.getId())
+                .channelId(po.getChannelId())
+                .channelName(po.getChannelName())
+                .channelType(po.getChannelType())
+                .webhookUrl(po.getWebhookUrl())
+                .secret(po.getSecret())
+                .notifySeverities(po.getNotifySeverities())
+                .status(po.getStatus())
+                .createTime(po.getCreateTime())
+                .updateTime(po.getUpdateTime())
                 .build();
     }
 

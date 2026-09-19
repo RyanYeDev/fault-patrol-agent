@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.faultpatrol.infrastructure.dao.IRemediationActionDao">
+
+    <resultMap id="RemediationActionMap" type="cn.faultpatrol.infrastructure.dao.po.RemediationAction">
+        <id column="id" property="id"/>
+        <result column="action_id" property="actionId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="title" property="title"/>
+        <result column="action_type" property="actionType"/>
+        <result column="target_resource" property="targetResource"/>
+        <result column="risk_level" property="riskLevel"/>
+        <result column="command" property="command"/>
+        <result column="rollback_plan" property="rollbackPlan"/>
+        <result column="status" property="status"/>
+        <result column="approval_comment" property="approvalComment"/>
+        <result column="approved_by" property="approvedBy"/>
+        <result column="execution_log" property="executionLog"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.faultpatrol.infrastructure.dao.po.RemediationAction" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO remediation_action (
+            action_id, session_id, title, action_type, target_resource, risk_level,
+            command, rollback_plan, status, approval_comment, approved_by, execution_log,
+            create_time, update_time
+        ) VALUES (
+            #{actionId}, #{sessionId}, #{title}, #{actionType}, #{targetResource}, #{riskLevel},
+            #{command}, #{rollbackPlan}, #{status}, #{approvalComment}, #{approvedBy}, #{executionLog},
+            now(), now()
+        )
+    </insert>
+
+    <select id="queryByActionId" parameterType="java.lang.String" resultMap="RemediationActionMap">
+        SELECT id, action_id, session_id, title, action_type, target_resource, risk_level,
+               command, rollback_plan, status, approval_comment, approved_by, execution_log,
+               create_time, update_time
+        FROM remediation_action
+        WHERE action_id = #{actionId}
+    </select>
+
+    <select id="queryBySessionId" parameterType="java.lang.String" resultMap="RemediationActionMap">
+        SELECT id, action_id, session_id, title, action_type, target_resource, risk_level,
+               command, rollback_plan, status, approval_comment, approved_by, execution_log,
+               create_time, update_time
+        FROM remediation_action
+        WHERE session_id = #{sessionId}
+        ORDER BY create_time ASC
+    </select>
+
+    <select id="queryPendingActions" resultMap="RemediationActionMap">
+        SELECT id, action_id, session_id, title, action_type, target_resource, risk_level,
+               command, rollback_plan, status, approval_comment, approved_by, execution_log,
+               create_time, update_time
+        FROM remediation_action
+        WHERE status = 'PROPOSED'
+        ORDER BY create_time DESC
+    </select>
+
+    <update id="updateStatusAndApproval" parameterType="cn.faultpatrol.infrastructure.dao.po.RemediationAction">
+        UPDATE remediation_action
+        SET status = #{status},
+            approved_by = #{approvedBy},
+            approval_comment = #{approvalComment},
+            update_time = now()
+        WHERE action_id = #{actionId}
+    </update>
+
+    <update id="updateExecutionResult" parameterType="cn.faultpatrol.infrastructure.dao.po.RemediationAction">
+        UPDATE remediation_action
+        SET status = #{status},
+            execution_log = #{executionLog},
+            update_time = now()
+        WHERE action_id = #{actionId}
+    </update>
+
+</mapper>

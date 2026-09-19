@@ -8,7 +8,6 @@ import java.util.Map;
 /**
  * AiAgent 仓储接口
  *
- * 2025/6/27 16:48
  */
 public interface IAgentRepository {
 
@@ -71,5 +70,28 @@ public interface IAgentRepository {
      * @param ragName      知识库名称（为空时删除该标签下全部台账）
      */
     void deleteRagOrder(String knowledgeTag, String ragName);
+
+    // 处置动作相关
+    void saveRemediationAction(RemediationActionVO actionVO);
+    RemediationActionVO queryRemediationActionById(String actionId);
+    List<RemediationActionVO> queryRemediationActionsBySessionId(String sessionId);
+    List<RemediationActionVO> queryPendingRemediationActions();
+    void updateRemediationStatus(String actionId, String status, String approvedBy, String comment);
+    void updateRemediationExecution(String actionId, String status, String executionLog);
+
+    // 巡检监控目标相关
+    void savePatrolTarget(PatrolTargetVO targetVO);
+    PatrolTargetVO queryPatrolTargetById(Long id);
+    PatrolTargetVO queryPatrolTargetByServiceName(String serviceName);
+    List<PatrolTargetVO> queryActivePatrolTargets();
+    List<PatrolTargetVO> queryAllPatrolTargets();
+    void updatePatrolTargetCheckStatus(Long id, String checkStatus, String errorMsg);
+
+    // 通知渠道相关
+    void saveNotificationChannel(NotificationChannelVO channelVO);
+    NotificationChannelVO queryNotificationChannelById(String channelId);
+    List<NotificationChannelVO> queryActiveNotificationChannels();
+    List<NotificationChannelVO> queryAllNotificationChannels();
+    void updateNotificationChannelStatus(String channelId, Integer status);
 
 }
